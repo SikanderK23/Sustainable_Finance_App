@@ -19,8 +19,16 @@ st.set_page_config(
 # ============================================================
 st.markdown("""
 <style>
-    /* Main background */
-    .stApp { background-color: #f7faf7; }
+    /* Main background + force ALL text dark globally */
+    .stApp { background-color: #f7faf7; color: #1a1a1a !important; }
+    .stApp p, .stApp span, .stApp label, .stApp div,
+    .stApp li, .stApp td, .stApp th, .stApp caption,
+    .stMarkdown, .stMarkdown p, .stMarkdown li,
+    .stMarkdown td, .stMarkdown th { color: #1a1a1a !important; }
+    /* Fix table text */
+    table, th, td { color: #1a1a1a !important; background-color: white !important; }
+    /* Fix tab text */
+    button[data-baseweb="tab"] { color: #2E7D32 !important; }
 
     /* Header banner */
     .qgreen-header {
