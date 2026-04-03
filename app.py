@@ -18,62 +18,61 @@ st.set_page_config(
 # ============================================================
 st.markdown("""
 <style>
-    /* Force light background and dark text everywhere */
     .stApp { background-color: #f7faf7 !important; color: #1a1a1a !important; }
-
-    /* All text elements */
     p, span, label, div, li, td, th, h1, h2, h3, h4, h5, h6,
     .stMarkdown, .stMarkdown p, .stMarkdown li { color: #1a1a1a !important; }
 
-    /* Input boxes — white background, dark text */
-    input, textarea, select,
-    input[type="number"], input[type="text"] {
+    input, textarea, select, input[type="number"], input[type="text"] {
         background-color: #ffffff !important;
         color: #1a1a1a !important;
         border: 1px solid #a5d6a7 !important;
         border-radius: 6px !important;
     }
 
-    /* Selectbox and number input wrappers */
     div[data-baseweb="input"] { background-color: #ffffff !important; }
-    div[data-baseweb="select"] > div { background-color: #ffffff !important; color: #1a1a1a !important; }
+    div[data-baseweb="select"] > div {
+        background-color: #ffffff !important;
+        color: #1a1a1a !important;
+    }
     div[data-baseweb="select"] * { color: #1a1a1a !important; }
 
-    /* Radio buttons */
-    .stRadio label, .stRadio div { color: #1a1a1a !important; }
-
-    /* Slider labels */
-    .stSlider label, .stSlider p { color: #1a1a1a !important; }
-
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background-color: #f1f8f1 !important;
+    /* Dropdown menu / popover fixes */
+    div[data-baseweb="popover"],
+    div[role="listbox"],
+    ul[role="listbox"],
+    li[role="option"] {
+        background: #ffffff !important;
+        color: #1a1a1a !important;
     }
+    div[data-baseweb="popover"] * ,
+    div[role="listbox"] * ,
+    ul[role="listbox"] * ,
+    li[role="option"] * {
+        color: #1a1a1a !important;
+        background: transparent !important;
+    }
+    li[role="option"][aria-selected="true"] {
+        background: #e8f5e9 !important;
+        color: #1a1a1a !important;
+    }
+
+    .stRadio label, .stRadio div, .stSlider label, .stSlider p { color: #1a1a1a !important; }
+
+    section[data-testid="stSidebar"] { background-color: #f1f8f1 !important; }
     section[data-testid="stSidebar"] * { color: #1a1a1a !important; }
-    section[data-testid="stSidebar"] input,
-    section[data-testid="stSidebar"] textarea {
-        background-color: #ffffff !important;
-        color: #1a1a1a !important;
-    }
-    section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
-        background-color: #ffffff !important;
-        color: #1a1a1a !important;
-    }
 
-    /* Header banner */
     .qgreen-header {
         background: linear-gradient(135deg, #1B5E20 0%, #2E7D32 50%, #388E3C 100%);
         color: white !important;
         padding: 2.2rem 2rem 1.8rem 2rem;
         border-radius: 14px;
         text-align: center;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.25rem;
         box-shadow: 0 4px 15px rgba(27,94,32,0.25);
     }
-    .qgreen-header h1 { font-size: 3rem; margin: 0; letter-spacing: 2px; color: white !important; }
-    .qgreen-header p  { font-size: 1.05rem; margin: 0.4rem 0 0 0; opacity: 0.9; color: white !important; }
+    .qgreen-header h1 { font-size: 3rem; margin: 0; letter-spacing: 1px; color: white !important; }
+    .qgreen-header p  { font-size: 1.05rem; margin: 0.4rem 0 0 0; opacity: 0.95; color: white !important; }
 
-    /* Metric cards */
     div[data-testid="metric-container"] {
         background: white !important;
         border: 1px solid #c8e6c9 !important;
@@ -84,27 +83,29 @@ st.markdown("""
     div[data-testid="metric-container"] * { color: #1a1a1a !important; }
     div[data-testid="metric-container"] label { color: #2E7D32 !important; font-weight: 600 !important; }
 
-    /* Dataframe */
     .stDataFrame, .stDataFrame * { color: #1a1a1a !important; background-color: white !important; }
-
-    /* Tabs */
     button[data-baseweb="tab"] { color: #2E7D32 !important; font-weight: 600 !important; font-size: 1rem !important; }
 
-    /* Info/success boxes */
-    .stAlert { border-radius: 8px !important; }
-
-    /* Recommendation box */
     .rec-box {
         background: linear-gradient(135deg, #e8f5e9, #f1f8e9);
         border-left: 5px solid #2E7D32;
         border-radius: 8px;
-        padding: 1.2rem 1.5rem;
+        padding: 1.1rem 1.35rem;
         margin-top: 1rem;
         color: #1a1a1a !important;
     }
     .rec-box * { color: #1a1a1a !important; }
 
-    /* Disclaimer */
+    .mode-card {
+        background: white;
+        border: 1px solid #d9eadb;
+        border-radius: 12px;
+        padding: 1rem 1.1rem;
+        min-height: 170px;
+        box-shadow: 0 1px 8px rgba(0,0,0,0.04);
+    }
+    .mode-card h4 { margin-top: 0; color: #1B5E20 !important; }
+
     .disclaimer {
         background: #fff8e1;
         border-left: 4px solid #f9a825;
@@ -114,30 +115,169 @@ st.markdown("""
         color: #555 !important;
         margin-top: 1.5rem;
     }
-
-    /* Dropdown option list */
-    ul[role="listbox"] li { color: #1a1a1a !important; background: white !important; }
-    ul[role="listbox"] { background: white !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ============================================================
-# LOAD ESG DATA
+# DATA
 # ============================================================
 @st.cache_data
 def load_esg_data():
     try:
         df = pd.read_csv("esg_scores.csv")
-        df = df.dropna(subset=["comname", "esg_0_100"])
-        df["comname"] = df["comname"].str.strip()
-        df = df.sort_values("comname")
+        df = df.dropna(subset=["comname", "ticker", "esg_0_100"]).copy()
+        df["comname"] = df["comname"].astype(str).str.strip()
+        df["ticker"] = df["ticker"].astype(str).str.strip()
+        df["esg_0_100"] = pd.to_numeric(df["esg_0_100"], errors="coerce")
+        df = df.dropna(subset=["esg_0_100"]).sort_values("comname")
         return df
     except Exception:
         return pd.DataFrame(columns=["comname", "ticker", "esg_0_100"])
 
 esg_df = load_esg_data()
-company_list = esg_df["comname"].tolist()
-has_data = len(company_list) > 0
+company_names = esg_df["comname"].tolist()
+
+# ============================================================
+# HELPERS
+# ============================================================
+def risk_profile_from_quiz(score: int):
+    if score <= 4:
+        return 8, "Conservative 🛡️"
+    if score <= 6:
+        return 4, "Balanced ⚖️"
+    return 2, "Growth-Oriented 🚀"
+
+
+def estimate_asset_characteristics(esg_score: float, style: str):
+    """Demo assumptions for options A/B when only ESG data is available.
+    Keeps app aligned with project brief while remaining transparent.
+    """
+    e = float(esg_score)
+    if style == "Conservative 🛡️":
+        ret = 0.05 + 0.00025 * e        # 5.0% to 7.5%
+        sd = 0.10 + 0.00020 * (100 - e) # lower ESG -> slightly higher risk
+    elif style == "Balanced ⚖️":
+        ret = 0.07 + 0.00022 * e        # 7.0% to 9.2%
+        sd = 0.14 + 0.00022 * (100 - e)
+    else:
+        ret = 0.09 + 0.00018 * e        # 9.0% to 10.8%
+        sd = 0.18 + 0.00025 * (100 - e)
+    return round(ret, 4), round(sd, 4)
+
+
+def pick_auto_pair(df: pd.DataFrame, style: str, lambda_esg: float, esg_mode: str, esg_threshold: float):
+    work = df.copy()
+    if esg_mode.startswith("🚫"):
+        work = work[work["esg_0_100"] >= esg_threshold]
+    if len(work) < 2:
+        return None, None
+
+    # Target ESG depends on preference intensity.
+    target = 45 + 45 * lambda_esg
+    if style == "Conservative 🛡️":
+        target += 5
+    elif style == "Growth-Oriented 🚀":
+        target -= 5
+    target = max(20, min(95, target))
+
+    work = work.assign(dist=(work["esg_0_100"] - target).abs())
+
+    # Choose one anchor near target, then one complementary stock from opposite side.
+    anchor = work.sort_values(["dist", "comname"]).iloc[0]
+    if style == "Conservative 🛡️":
+        companion_pool = work[work["esg_0_100"] >= anchor["esg_0_100"]].sort_values(["esg_0_100", "comname"], ascending=[False, True])
+    elif style == "Growth-Oriented 🚀":
+        companion_pool = work[work["esg_0_100"] <= anchor["esg_0_100"]].sort_values(["esg_0_100", "comname"], ascending=[True, True])
+    else:
+        companion_pool = work.sort_values("dist", ascending=False)
+
+    companion_pool = companion_pool[companion_pool["comname"] != anchor["comname"]]
+    if len(companion_pool) == 0:
+        companion_pool = work[work["comname"] != anchor["comname"]]
+    companion = companion_pool.iloc[0]
+    return anchor, companion
+
+
+def build_asset_dict(name, ticker, ret, sd, esg):
+    return {
+        "name": str(name),
+        "ticker": str(ticker),
+        "ret": float(ret),
+        "sd": float(sd),
+        "esg": float(esg),
+    }
+
+
+def optimise_two_asset_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, esg_threshold):
+    excluded = []
+    if esg_mode.startswith("🚫"):
+        if asset1["esg"] < esg_threshold:
+            excluded.append(asset1["name"])
+        if asset2["esg"] < esg_threshold:
+            excluded.append(asset2["name"])
+    if len(excluded) == 2:
+        return {"error": f"Both assets fall below the ESG threshold of {esg_threshold:.0f}."}
+
+    esg1_eff, esg2_eff = asset1["esg"], asset2["esg"]
+    if esg_mode.startswith("🏅"):
+        if esg1_eff >= esg2_eff:
+            esg1_eff = min(esg1_eff * 1.15, 100)
+        else:
+            esg2_eff = min(esg2_eff * 1.15, 100)
+
+    def port_return(w):
+        return w * asset1["ret"] + (1 - w) * asset2["ret"]
+
+    def port_std(w):
+        v = (w**2) * (asset1["sd"]**2) + ((1 - w)**2) * (asset2["sd"]**2) + 2 * corr * w * (1 - w) * asset1["sd"] * asset2["sd"]
+        return float(np.sqrt(max(v, 1e-10)))
+
+    def port_esg(w):
+        return w * esg1_eff + (1 - w) * esg2_eff
+
+    def utility(w):
+        return port_return(w) - 0.5 * gamma * (port_std(w) ** 2) + lambda_esg * (port_esg(w) / 100)
+
+    if asset1["name"] in excluded:
+        weights = np.array([0.0])
+    elif asset2["name"] in excluded:
+        weights = np.array([1.0])
+    else:
+        weights = np.linspace(0, 1, 1000)
+
+    all_ret = np.array([port_return(w) for w in weights])
+    all_std = np.array([port_std(w) for w in weights])
+    all_esg = np.array([port_esg(w) for w in weights])
+    all_util = np.array([utility(w) for w in weights])
+    all_sharpe = np.where(all_std > 0, (all_ret - rf) / all_std, -np.inf)
+
+    tang_idx = int(np.argmax(all_sharpe))
+    best_idx = int(np.argmax(all_util))
+    w1 = float(weights[best_idx])
+    w2 = 1.0 - w1
+
+    return {
+        "asset1": asset1,
+        "asset2": asset2,
+        "weights": weights,
+        "all_ret": all_ret,
+        "all_std": all_std,
+        "all_esg": all_esg,
+        "w1": w1,
+        "w2": w2,
+        "ret_opt": float(all_ret[best_idx]),
+        "std_opt": float(all_std[best_idx]),
+        "esg_opt": float(all_esg[best_idx]),
+        "util_opt": float(all_util[best_idx]),
+        "sharpe_opt": float((all_ret[best_idx] - rf) / all_std[best_idx]),
+        "ret_tang": float(all_ret[tang_idx]),
+        "std_tang": float(all_std[tang_idx]),
+        "rf": rf,
+        "excluded": excluded,
+        "esg1_eff": esg1_eff,
+        "esg2_eff": esg2_eff,
+    }
+
 
 # ============================================================
 # HEADER
@@ -145,418 +285,311 @@ has_data = len(company_list) > 0
 st.markdown("""
 <div class="qgreen-header">
     <h1>🌿 QGreen</h1>
-    <p>Your Personalised Sustainable Investment Portfolio Advisor</p>
+    <p>Build a personalised two-asset sustainable portfolio in three different ways</p>
 </div>
 """, unsafe_allow_html=True)
 
+m1, m2, m3 = st.columns(3)
+m1.markdown("""<div class='mode-card'><h4>A) Auto Portfolio</h4>
+QGreen chooses <strong>two companies for you</strong> using your quiz answers and ESG preferences. Best for a fast recommendation.</div>""", unsafe_allow_html=True)
+m2.markdown("""<div class='mode-card'><h4>B) Choose 2 Companies</h4>
+You pick <strong>two real companies</strong> from the built-in ESG dataset. QGreen auto-fills ESG scores and demo return/risk assumptions.</div>""", unsafe_allow_html=True)
+m3.markdown("""<div class='mode-card'><h4>C) Full Manual</h4>
+You enter <strong>everything yourself</strong>: expected return, risk, correlation, risk-free rate, and ESG scores for both assets.</div>""", unsafe_allow_html=True)
+
 # ============================================================
-# SIDEBAR
+# SIDEBAR INPUTS
 # ============================================================
 with st.sidebar:
-    st.markdown("## ⚙️ Build Your Portfolio")
+    st.markdown("## ⚙️ Portfolio Builder")
 
-    # ── STEP 1: RISK QUIZ ──────────────────────────────────
-    st.markdown("### 📊 Step 1 — Risk Profile")
-    st.caption("Answer 3 questions to find your risk tolerance (γ).")
+    mode = st.radio(
+        "Choose how you want to build your portfolio:",
+        [
+            "A) Let QGreen choose 2 companies for me",
+            "B) I choose 2 real companies",
+            "C) I enter everything manually",
+        ],
+        index=0,
+    )
 
-    q1 = st.radio("Your portfolio drops 20%. You:",
-        ["😨 Sell everything", "😐 Hold and wait", "😎 Buy more"], index=1)
-    q2 = st.radio("Investment time horizon:",
-        ["⏱️ Under 2 years", "📅 2–10 years", "🏆 Over 10 years"], index=1)
-    q3 = st.radio("Your investment goal:",
-        ["🛡️ Protect capital", "⚖️ Balance growth & safety", "🚀 Maximise growth"], index=1)
+    st.markdown("---")
+    st.markdown("### 📊 Step 1 — Risk quiz")
+    q1 = st.radio("If your portfolio falls 20%, what do you do?",
+                  ["Sell quickly", "Hold and wait", "Buy more while prices are lower"], index=1)
+    q2 = st.radio("What is your investment horizon?",
+                  ["Under 2 years", "2 to 10 years", "Over 10 years"], index=1)
+    q3 = st.radio("Which goal matters most?",
+                  ["Capital protection", "Balanced growth and stability", "Maximum growth"], index=1)
 
     score_map = {
-        "😨 Sell everything":1,"😐 Hold and wait":2,"😎 Buy more":3,
-        "⏱️ Under 2 years":1,"📅 2–10 years":2,"🏆 Over 10 years":3,
-        "🛡️ Protect capital":1,"⚖️ Balance growth & safety":2,"🚀 Maximise growth":3
+        "Sell quickly": 1,
+        "Hold and wait": 2,
+        "Buy more while prices are lower": 3,
+        "Under 2 years": 1,
+        "2 to 10 years": 2,
+        "Over 10 years": 3,
+        "Capital protection": 1,
+        "Balanced growth and stability": 2,
+        "Maximum growth": 3,
     }
     quiz_score = score_map[q1] + score_map[q2] + score_map[q3]
-
-    if quiz_score <= 4:
-        gamma = 8;  risk_label = "Conservative 🛡️"
-    elif quiz_score <= 6:
-        gamma = 4;  risk_label = "Balanced ⚖️"
-    else:
-        gamma = 2;  risk_label = "Growth-Oriented 🚀"
-
-    st.success(f"**{risk_label}** — γ = {gamma}")
-    st.markdown("---")
-
-    # ── STEP 2: ESG STRATEGY ───────────────────────────────
-    st.markdown("### 🌱 Step 2 — ESG Strategy")
-
-    esg_model = st.selectbox("ESG Approach:", [
-        "🚫 Model 1.0 — Exclusion Screening",
-        "🏅 Model 2.0 — Best-in-Class",
-        "🌍 Model 3.0 — Full ESG Integration"
-    ])
-
-    lamda = st.slider("ESG weight (λ)", 0.0, 1.0, 0.5, 0.05,
-        help="0 = pure financial optimisation | 1 = ESG equally important")
-
-    esg_threshold = 0
-    if esg_model.startswith("🚫"):
-        esg_threshold = st.slider("Minimum ESG score:", 0, 100, 50)
+    gamma, risk_label = risk_profile_from_quiz(quiz_score)
+    st.success(f"Profile: **{risk_label}**  \\nRisk aversion coefficient: **γ = {gamma}**")
 
     st.markdown("---")
-
-    # ── STEP 3: ASSET SELECTION ────────────────────────────
-    st.markdown("### 📈 Step 3 — Select Your Assets")
-
-    if has_data:
-        st.caption("📂 Pick from 549 real companies — ESG score auto-fills from 2025 data.")
-    else:
-        st.caption("Enter asset details manually below.")
-
-    # ── ASSET 1 ──
-    st.markdown("**Asset 1**")
-    if has_data:
-        sel1 = st.selectbox("Company", ["-- Enter manually --"] + company_list, key="sel1")
-        if sel1 != "-- Enter manually --":
-            row1 = esg_df[esg_df["comname"] == sel1].iloc[0]
-            default_esg1 = float(row1["esg_0_100"])
-            asset1_name  = sel1.split(",")[0].strip().title()
-            ticker1      = str(row1["ticker"])
-        else:
-            asset1_name  = st.text_input("Name", "Asset 1", key="n1")
-            default_esg1 = 70.0
-            ticker1      = ""
-    else:
-        sel1 = "-- Enter manually --"
-        asset1_name  = st.text_input("Name", "Asset 1", key="n1")
-        default_esg1 = 70.0
-        ticker1      = ""
-
-    r1   = st.number_input("Return (%)",  min_value=0.0, max_value=100.0, value=10.0, step=0.5, key="r1") / 100
-    sd1  = st.number_input("Std Dev (%)", min_value=0.1, max_value=100.0, value=18.0, step=0.5, key="s1") / 100
-    esg1 = st.number_input("ESG Score (0–100)",
-                            min_value=0.0, max_value=100.0,
-                            value=default_esg1, step=0.1, key="e1",
-                            help="Auto-filled from real data. You can override this.")
-
-    st.markdown("**Asset 2**")
-    if has_data:
-        sel2 = st.selectbox("Company", ["-- Enter manually --"] + company_list, key="sel2",
-                            index=company_list.index("UNILEVER PLC") + 1
-                            if "UNILEVER PLC" in company_list else 0)
-        if sel2 != "-- Enter manually --":
-            row2 = esg_df[esg_df["comname"] == sel2].iloc[0]
-            default_esg2 = float(row2["esg_0_100"])
-            asset2_name  = sel2.split(",")[0].strip().title()
-            ticker2      = str(row2["ticker"])
-        else:
-            asset2_name  = st.text_input("Name", "Asset 2", key="n2")
-            default_esg2 = 85.0
-            ticker2      = ""
-    else:
-        sel2 = "-- Enter manually --"
-        asset2_name  = st.text_input("Name", "Asset 2", key="n2")
-        default_esg2 = 85.0
-        ticker2      = ""
-
-    r2   = st.number_input("Return (%)",  min_value=0.0, max_value=100.0, value=6.0,  step=0.5, key="r2") / 100
-    sd2  = st.number_input("Std Dev (%)", min_value=0.1, max_value=100.0, value=12.0, step=0.5, key="s2") / 100
-    esg2 = st.number_input("ESG Score (0–100)",
-                            min_value=0.0, max_value=100.0,
-                            value=default_esg2, step=0.1, key="e2",
-                            help="Auto-filled from real data. You can override this.")
+    st.markdown("### 🌱 Step 2 — ESG preferences")
+    esg_mode = st.selectbox(
+        "ESG strategy",
+        [
+            "🚫 Model 1.0 — Exclusion screening",
+            "🏅 Model 2.0 — Best-in-class tilt",
+            "🌍 Model 3.0 — Full ESG integration",
+        ],
+    )
+    lambda_esg = st.slider("How strongly should ESG matter? (λ)", 0.0, 1.0, 0.50, 0.05)
+    esg_threshold = 50.0
+    if esg_mode.startswith("🚫"):
+        esg_threshold = st.slider("Minimum ESG score allowed", 0, 100, 50)
 
     st.markdown("---")
-    corr = st.slider("Correlation (ρ)", -1.0, 1.0, 0.3, 0.05)
-    rf   = st.number_input("Risk-free rate (%)", min_value=0.0, max_value=20.0, value=4.0, step=0.1) / 100
+    st.markdown("### 🔗 Market assumptions")
+    corr = st.slider("Correlation between the two assets (ρ)", -1.0, 1.0, 0.30, 0.05)
+    rf = st.number_input("Risk-free rate (%)", min_value=0.0, max_value=20.0, value=4.0, step=0.1) / 100
 
     st.markdown("---")
-    run = st.button("🚀 Generate My Portfolio", type="primary", use_container_width=True)
+    st.caption("For modes A and B, ESG scores come from your built-in company dataset. Expected return and risk use transparent demo assumptions so the app can still optimise a portfolio.")
+    run = st.button("🚀 Generate portfolio", type="primary", use_container_width=True)
+
+# ============================================================
+# BUILD ASSETS FOR EACH MODE
+# ============================================================
+asset1 = asset2 = None
+mode_explainer = ""
+
+if mode.startswith("A"):
+    mode_explainer = "QGreen automatically selected two companies using your risk quiz result and ESG preferences."
+    if len(esg_df) >= 2:
+        a1, a2 = pick_auto_pair(esg_df, risk_label, lambda_esg, esg_mode, esg_threshold)
+        if a1 is not None and a2 is not None:
+            r1, sd1 = estimate_asset_characteristics(a1["esg_0_100"], risk_label)
+            r2, sd2 = estimate_asset_characteristics(a2["esg_0_100"], risk_label)
+            asset1 = build_asset_dict(a1["comname"].title(), a1["ticker"], r1, sd1, a1["esg_0_100"])
+            asset2 = build_asset_dict(a2["comname"].title(), a2["ticker"], r2, sd2, a2["esg_0_100"])
+
+elif mode.startswith("B"):
+    st.subheader("Choose your two companies")
+    c1, c2 = st.columns(2)
+    with c1:
+        name1 = st.selectbox("Company 1", company_names, key="b_company1")
+    with c2:
+        available2 = [n for n in company_names if n != name1]
+        name2 = st.selectbox("Company 2", available2, key="b_company2")
+
+    row1 = esg_df.loc[esg_df["comname"] == name1].iloc[0]
+    row2 = esg_df.loc[esg_df["comname"] == name2].iloc[0]
+    r1, sd1 = estimate_asset_characteristics(row1["esg_0_100"], risk_label)
+    r2, sd2 = estimate_asset_characteristics(row2["esg_0_100"], risk_label)
+
+    st.info("QGreen auto-filled expected return and risk using the app's demo assumptions. You can edit them below if you want more control.")
+    e1, e2 = st.columns(2)
+    with e1:
+        r1 = st.number_input("Company 1 expected return (%)", 0.0, 100.0, float(r1 * 100), 0.1, key="b_r1") / 100
+        sd1 = st.number_input("Company 1 risk / SD (%)", 0.1, 100.0, float(sd1 * 100), 0.1, key="b_sd1") / 100
+    with e2:
+        r2 = st.number_input("Company 2 expected return (%)", 0.0, 100.0, float(r2 * 100), 0.1, key="b_r2") / 100
+        sd2 = st.number_input("Company 2 risk / SD (%)", 0.1, 100.0, float(sd2 * 100), 0.1, key="b_sd2") / 100
+
+    asset1 = build_asset_dict(row1["comname"].title(), row1["ticker"], r1, sd1, row1["esg_0_100"])
+    asset2 = build_asset_dict(row2["comname"].title(), row2["ticker"], r2, sd2, row2["esg_0_100"])
+    mode_explainer = "You chose two real companies from the dataset. ESG scores were auto-filled and return/risk assumptions can be adjusted."
+
+else:
+    st.subheader("Enter both assets manually")
+    c1, c2 = st.columns(2)
+    with c1:
+        n1 = st.text_input("Asset 1 name", "Asset 1")
+        t1 = st.text_input("Asset 1 ticker", "A1")
+        r1 = st.number_input("Asset 1 expected return (%)", 0.0, 100.0, 10.0, 0.1, key="c_r1") / 100
+        sd1 = st.number_input("Asset 1 risk / SD (%)", 0.1, 100.0, 18.0, 0.1, key="c_sd1") / 100
+        esg1 = st.number_input("Asset 1 ESG score", 0.0, 100.0, 65.0, 0.1, key="c_esg1")
+    with c2:
+        n2 = st.text_input("Asset 2 name", "Asset 2")
+        t2 = st.text_input("Asset 2 ticker", "A2")
+        r2 = st.number_input("Asset 2 expected return (%)", 0.0, 100.0, 7.0, 0.1, key="c_r2") / 100
+        sd2 = st.number_input("Asset 2 risk / SD (%)", 0.1, 100.0, 12.0, 0.1, key="c_sd2") / 100
+        esg2 = st.number_input("Asset 2 ESG score", 0.0, 100.0, 85.0, 0.1, key="c_esg2")
+    asset1 = build_asset_dict(n1, t1, r1, sd1, esg1)
+    asset2 = build_asset_dict(n2, t2, r2, sd2, esg2)
+    mode_explainer = "You entered all portfolio inputs manually, exactly matching the base-case requirement from the brief."
 
 # ============================================================
 # WELCOME SCREEN
 # ============================================================
 if not run:
-    wc1, wc2, wc3 = st.columns(3)
-    wc1.markdown("""
-    #### 📊 Step 1 — Risk Quiz
-    Answer 3 quick questions. QGreen automatically
-    calculates your risk aversion coefficient (γ).
-    """)
-    wc2.markdown("""
-    #### 🌱 Step 2 — ESG Strategy
-    Choose from three sustainable investing models:
-    exclusion, best-in-class, or full integration.
-    """)
-    wc3.markdown("""
-    #### 📈 Step 3 — Your Assets
-    Pick from **549 real companies** with live ESG scores,
-    or enter your own custom asset details.
-    """)
+    st.markdown("### How to use QGreen")
+    st.markdown(f"**Selected mode:** {mode}")
+    st.markdown(mode_explainer if mode_explainer else "Choose a mode, set your preferences, then click Generate portfolio.")
 
-    st.markdown("---")
     st.markdown("""
-| ESG Model | Description |
-|-----------|-------------|
-| 🚫 **Model 1.0 — Exclusion** | Screens out assets below your ESG threshold (e.g. sin stocks, fossil fuels) |
-| 🏅 **Model 2.0 — Best-in-Class** | Rewards the top ESG performer with a scoring bonus |
-| 🌍 **Model 3.0 — Full Integration** | ESG fully embedded into the utility function: **U = μ − ½γσ² + λ·ESG** |
+- **A) Auto Portfolio**: best if the user wants the app to do most of the work.
+- **B) Choose 2 Companies**: best if the user already knows which firms they want to compare.
+- **C) Full Manual**: best if the user wants complete control over return, risk, correlation, risk-free rate, and ESG inputs.
+    """)
 
----
-*ECN316 Sustainable Finance · Queen Mary University of London*
+    st.markdown("""
+| ESG model | What it does |
+|---|---|
+| 🚫 Exclusion screening | removes assets below your minimum ESG threshold |
+| 🏅 Best-in-class tilt | rewards the stronger ESG asset with a small ESG bonus |
+| 🌍 Full ESG integration | uses the lecture 6 utility function directly: \(U = E[R_p] - \frac{\gamma}{2}\sigma_p^2 + \lambda \bar{s}\) |
     """)
     st.stop()
 
 # ============================================================
-# CALCULATIONS
+# OPTIMISE
 # ============================================================
-
-# Model 1.0: exclusion
-excluded = []
-if esg_model.startswith("🚫"):
-    if esg1 < esg_threshold: excluded.append(asset1_name)
-    if esg2 < esg_threshold: excluded.append(asset2_name)
-
-if len(excluded) == 2:
-    st.error(f"⚠️ Both assets are below your ESG threshold of {esg_threshold}. Lower the threshold or pick different companies.")
+result = optimise_two_asset_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, esg_threshold)
+if result.get("error"):
+    st.error(result["error"])
     st.stop()
 
-# Model 2.0: best-in-class bonus
-esg1_eff, esg2_eff = esg1, esg2
-if esg_model.startswith("🏅"):
-    if esg1 >= esg2: esg1_eff = min(esg1 * 1.15, 100)
-    else:            esg2_eff = min(esg2 * 1.15, 100)
+w1 = result["w1"]
+w2 = result["w2"]
+ret_opt = result["ret_opt"]
+std_opt = result["std_opt"]
+esg_opt = result["esg_opt"]
+sharpe_opt = result["sharpe_opt"]
+ret_tang = result["ret_tang"]
+std_tang = result["std_tang"]
 
-# Portfolio functions
-def port_return(w): return w * r1 + (1 - w) * r2
-def port_std(w):
-    v = w**2*sd1**2 + (1-w)**2*sd2**2 + 2*corr*w*(1-w)*sd1*sd2
-    return np.sqrt(max(v, 1e-10))
-def port_esg(w):    return w * esg1_eff + (1 - w) * esg2_eff
-def utility(w):
-    # Lecture 6: U = μ − ½·γ·σ² + λ·(ESG/100)
-    # λ=0 → pure mean-variance; λ>0 → ESG-integrated optimisation
-    return port_return(w) - 0.5*gamma*port_std(w)**2 + lamda*(port_esg(w)/100)
+st.markdown("## 🎯 Your QGreen Recommendation")
+st.caption(f"Mode: **{mode}** · Risk profile: **{risk_label}** · γ = **{gamma}** · λ = **{lambda_esg:.2f}**")
+st.info(mode_explainer)
 
-# Weights array
-if asset1_name in excluded:   weights = np.array([0.0])
-elif asset2_name in excluded: weights = np.array([1.0])
-else:                          weights = np.linspace(0, 1, 1000)
+tab1, tab2, tab3 = st.tabs(["📊 Results", "📈 Charts", "💡 How it works"])
 
-all_ret   = np.array([port_return(w) for w in weights])
-all_std   = np.array([port_std(w)    for w in weights])
-all_esg   = np.array([port_esg(w)    for w in weights])
-all_util  = np.array([utility(w)     for w in weights])
-all_sharpe = np.where(all_std > 0, (all_ret - rf) / all_std, -np.inf)
+with tab1:
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Expected return", f"{ret_opt*100:.2f}%")
+    c2.metric("Risk (SD)", f"{std_opt*100:.2f}%")
+    c3.metric("Portfolio ESG", f"{esg_opt:.1f} / 100")
+    c4.metric("Sharpe ratio", f"{sharpe_opt:.2f}")
 
-# Tangency portfolio
-tang_idx  = int(np.argmax(all_sharpe))
-ret_tang  = float(all_ret[tang_idx])
-std_tang  = float(all_std[tang_idx])
-
-# Optimal ESG portfolio
-best_idx  = int(np.argmax(all_util))
-w1_opt    = float(weights[best_idx])
-w2_opt    = 1 - w1_opt
-ret_opt   = float(all_ret[best_idx])
-std_opt   = float(all_std[best_idx])
-esg_opt   = float(all_esg[best_idx])
-sharpe_opt = (ret_opt - rf) / std_opt if std_opt > 0 else 0.0
-
-# ============================================================
-# OUTPUT
-# ============================================================
-st.markdown(f"## 🎯 Your QGreen Recommendation")
-st.caption(f"ESG Strategy: **{esg_model.split('—')[1].strip()}** · Risk Profile: **{risk_label}** · γ={gamma} · λ={lamda}")
-
-tab_results, tab_charts, tab_explain = st.tabs(["📊 Results", "📈 Charts", "💡 How It Works"])
-
-# ──────────────────────────────────────────────────────────
-# TAB 1: RESULTS
-# ──────────────────────────────────────────────────────────
-with tab_results:
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("📈 Expected Return", f"{ret_opt*100:.2f}%")
-    k2.metric("📉 Risk (Std Dev)",   f"{std_opt*100:.2f}%")
-    k3.metric("🌿 ESG Score",        f"{esg_opt:.1f} / 100")
-    k4.metric("⚡ Sharpe Ratio",     f"{sharpe_opt:.2f}")
-
-    st.markdown("---")
-    st.markdown("#### Portfolio Weights")
-
-    df_out = pd.DataFrame({
-        "Asset":          [asset1_name,           asset2_name],
-        "Ticker":         [ticker1,                ticker2],
-        "Weight":         [f"{w1_opt*100:.1f}%",  f"{w2_opt*100:.1f}%"],
-        "Return (est.)":  [f"{r1*100:.1f}%",       f"{r2*100:.1f}%"],
-        "Risk (Std Dev)": [f"{sd1*100:.1f}%",      f"{sd2*100:.1f}%"],
-        "ESG Score":      [f"{esg1:.1f} / 100",    f"{esg2:.1f} / 100"],
+    out = pd.DataFrame({
+        "Asset": [asset1["name"], asset2["name"]],
+        "Ticker": [asset1["ticker"], asset2["ticker"]],
+        "Weight": [f"{w1*100:.1f}%", f"{w2*100:.1f}%"],
+        "Expected return": [f"{asset1['ret']*100:.1f}%", f"{asset2['ret']*100:.1f}%"],
+        "Risk / SD": [f"{asset1['sd']*100:.1f}%", f"{asset2['sd']*100:.1f}%"],
+        "ESG score": [f"{asset1['esg']:.1f}", f"{asset2['esg']:.1f}"],
     })
-    st.dataframe(df_out, use_container_width=True, hide_index=True)
+    st.dataframe(out, use_container_width=True, hide_index=True)
 
-    # Recommendation text
-    if esg_opt >= 80:   esg_qual = "excellent 🌟"
-    elif esg_opt >= 65: esg_qual = "good 👍"
-    else:               esg_qual = "moderate ⚠️"
-
-    if asset1_name in excluded:
-        alloc_reason = f"**{asset1_name}** was excluded — ESG score ({esg1:.0f}) below your threshold ({esg_threshold})."
-    elif asset2_name in excluded:
-        alloc_reason = f"**{asset2_name}** was excluded — ESG score ({esg2:.0f}) below your threshold ({esg_threshold})."
-    elif w1_opt >= w2_opt:
-        alloc_reason = f"**{asset1_name}** receives the larger share — its return ({r1*100:.1f}%) and ESG score ({esg1:.0f}/100) best match your {risk_label} profile."
+    if result["excluded"]:
+        allocation_reason = f"Exclusion screening removed: {', '.join(result['excluded'])}."
+    elif w1 > w2:
+        allocation_reason = f"{asset1['name']} receives the larger weight because it contributes more to your overall utility after balancing return, risk, and ESG."
+    elif w2 > w1:
+        allocation_reason = f"{asset2['name']} receives the larger weight because it contributes more to your overall utility after balancing return, risk, and ESG."
     else:
-        alloc_reason = f"**{asset2_name}** receives the larger share — its ESG score ({esg2:.0f}/100) and lower risk ({sd2*100:.1f}%) suit your {risk_label} profile."
-
-    esg_note = ("λ = 0: pure financial optimisation — no ESG weighting applied."
-                if lamda == 0 else
-                f"ESG preference λ={lamda} rewarded portfolios with stronger sustainability scores.")
+        allocation_reason = "Both assets receive similar weights because their combined return-risk-ESG trade-off is balanced."
 
     st.markdown(f"""
 <div class="rec-box">
-<h4>💬 QGreen Recommends:</h4>
-<p>➡ <strong>{w1_opt*100:.0f}% in {asset1_name}</strong> &nbsp;|&nbsp;
-   <strong>{w2_opt*100:.0f}% in {asset2_name}</strong></p>
+<h4>QGreen recommends:</h4>
+<p><strong>{w1*100:.0f}% in {asset1['name']}</strong> and <strong>{w2*100:.0f}% in {asset2['name']}</strong></p>
 <ul>
-  <li>Expected annual return: <strong>{ret_opt*100:.2f}%</strong></li>
-  <li>Risk (standard deviation): <strong>{std_opt*100:.2f}%</strong></li>
-  <li>ESG score: <strong>{esg_opt:.0f}/100</strong> — {esg_qual}</li>
-  <li>Sharpe ratio: <strong>{sharpe_opt:.2f}</strong></li>
+<li>Expected annual return: <strong>{ret_opt*100:.2f}%</strong></li>
+<li>Risk (standard deviation): <strong>{std_opt*100:.2f}%</strong></li>
+<li>Portfolio ESG score: <strong>{esg_opt:.1f}/100</strong></li>
+<li>Sharpe ratio: <strong>{sharpe_opt:.2f}</strong></li>
 </ul>
-<p>{alloc_reason}<br>{esg_note}</p>
+<p>{allocation_reason}</p>
 </div>
 """, unsafe_allow_html=True)
 
-    st.markdown("""
-<div class="disclaimer">
-⚠️ <strong>Disclaimer:</strong> QGreen is for educational purposes only.
-ESG scores are sourced from real 2025 data. Return and risk estimates are user-provided.
-Always consult a qualified financial advisor before investing.
-</div>""", unsafe_allow_html=True)
-
-# ──────────────────────────────────────────────────────────
-# TAB 2: CHARTS
-# ──────────────────────────────────────────────────────────
-with tab_charts:
-    g1, g2 = st.columns(2)
-
-    with g1:
-        st.markdown("#### ESG-Efficient Frontier")
-        fig1, ax1 = plt.subplots(figsize=(6.5, 5))
-        fig1.patch.set_facecolor("#f7faf7")
-        ax1.set_facecolor("#f7faf7")
-
-        sc = ax1.scatter(all_std*100, all_ret*100, c=all_esg,
-                         cmap="RdYlGn", s=14, alpha=0.85, zorder=2, vmin=0, vmax=100)
-        cbar = plt.colorbar(sc, ax=ax1)
-        cbar.set_label("ESG Score", fontsize=9)
-
-        # CML
+with tab2:
+    left, right = st.columns(2)
+    with left:
+        fig, ax = plt.subplots(figsize=(6.3, 5))
+        fig.patch.set_facecolor("#f7faf7")
+        ax.set_facecolor("#f7faf7")
+        sc = ax.scatter(result["all_std"]*100, result["all_ret"]*100, c=result["all_esg"], cmap="RdYlGn", s=14, alpha=0.85, vmin=0, vmax=100)
+        plt.colorbar(sc, ax=ax, label="ESG score")
+        cml_x = np.linspace(0, max(result["all_std"])*100*1.25, 200)
         if std_tang > 0:
-            cml_x = np.linspace(0, max(all_std)*100*1.3, 200)
-            cml_y = rf*100 + (ret_tang - rf)/std_tang * cml_x/100 * 100
-            ax1.plot(cml_x, cml_y, "g--", lw=1.6, label="Capital Market Line", zorder=3)
+            cml_y = rf*100 + ((ret_tang - rf) / std_tang) * (cml_x / 100) * 100
+            ax.plot(cml_x, cml_y, "g--", lw=1.6, label="Capital Market Line")
+        ax.scatter(0, rf*100, color="green", marker="s", s=85, label="Risk-free")
+        ax.scatter(asset1["sd"]*100, asset1["ret"]*100, color="#6A1B9A", marker="D", s=90, label=asset1["name"])
+        ax.scatter(asset2["sd"]*100, asset2["ret"]*100, color="#EF6C00", marker="D", s=90, label=asset2["name"])
+        ax.scatter(std_tang*100, ret_tang*100, color="red", marker="*", s=220, label="Tangency portfolio")
+        ax.scatter(std_opt*100, ret_opt*100, color="blue", marker="*", s=260, label="Optimal ESG portfolio")
+        ax.set_xlabel("Risk — standard deviation (%)")
+        ax.set_ylabel("Expected return (%)")
+        ax.set_title("ESG-efficient frontier")
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=7.5, loc="lower right")
+        st.pyplot(fig)
 
-        ax1.scatter(0, rf*100, color="green", marker="s", s=90, zorder=5, label=f"Risk-Free ({rf*100:.1f}%)")
-        ax1.scatter(std_tang*100, ret_tang*100, color="red", marker="*", s=260, zorder=6, label="Tangency Portfolio")
-        ax1.scatter(sd1*100, r1*100, color="purple", marker="D", s=100, zorder=5, label=asset1_name)
-        ax1.scatter(sd2*100, r2*100, color="orange",  marker="D", s=100, zorder=5, label=asset2_name)
-        ax1.scatter(std_opt*100, ret_opt*100, color="blue", marker="*", s=320, zorder=7, label="✅ Optimal ESG Portfolio")
-
-        ax1.set_xlabel("Risk — Std Dev (%)", fontsize=10)
-        ax1.set_ylabel("Expected Annual Return (%)", fontsize=10)
-        ax1.set_title("ESG-Efficient Frontier & CML", fontweight="bold")
-        ax1.legend(fontsize=7.5, loc="lower right")
-        ax1.grid(True, alpha=0.3)
-        plt.tight_layout()
-        st.pyplot(fig1)
-
-    with g2:
-        st.markdown("#### Recommended Allocation")
-        fig2, ax2 = plt.subplots(figsize=(6.5, 5))
+    with right:
+        fig2, ax2 = plt.subplots(figsize=(6.3, 5))
         fig2.patch.set_facecolor("#f7faf7")
-
         wedges, texts, autotexts = ax2.pie(
-            [max(w1_opt, 0.0001), max(w2_opt, 0.0001)],
-            labels=[asset1_name, asset2_name],
-            autopct="%1.1f%%", colors=["#1565C0","#2E7D32"],
-            startangle=90, wedgeprops={"edgecolor":"white","linewidth":2.5}
+            [max(w1, 0.0001), max(w2, 0.0001)],
+            labels=[asset1["name"], asset2["name"]],
+            autopct="%1.1f%%",
+            colors=["#1565C0", "#2E7D32"],
+            startangle=90,
+            wedgeprops={"edgecolor": "white", "linewidth": 2.5},
         )
-        for at in autotexts:
-            at.set_fontsize(13); at.set_fontweight("bold"); at.set_color("white")
-        ax2.text(0, -1.38,
-                 f"Return {ret_opt*100:.2f}%  ·  Risk {std_opt*100:.2f}%  ·  ESG {esg_opt:.0f}/100",
-                 ha="center", fontsize=9,
-                 bbox=dict(boxstyle="round,pad=0.4", facecolor="#c8e6c9", alpha=0.9))
-        ax2.set_title("Portfolio Allocation", fontweight="bold")
-        plt.tight_layout()
+        for a in autotexts:
+            a.set_color("white")
+            a.set_fontweight("bold")
+        ax2.set_title("Recommended allocation")
         st.pyplot(fig2)
 
-    # ESG comparison bar
-    st.markdown("#### ESG Score Comparison")
-    fig3, ax3 = plt.subplots(figsize=(9, 3))
+    fig3, ax3 = plt.subplots(figsize=(8.5, 3))
     fig3.patch.set_facecolor("#f7faf7")
     ax3.set_facecolor("#f7faf7")
-
-    bars = ax3.barh([asset1_name, asset2_name, "Your Portfolio"],
-                    [esg1, esg2, esg_opt],
-                    color=["#1565C0","#2E7D32","#FF6F00"], edgecolor="white", height=0.5)
-    for bar, val in zip(bars, [esg1, esg2, esg_opt]):
-        ax3.text(val+0.8, bar.get_y()+bar.get_height()/2,
-                 f"{val:.1f}", va="center", fontweight="bold", fontsize=11, color="#1a1a1a")
-
-    ax3.set_xlim(0, 115)
-    ax3.axvline(50, color="red",    linestyle="--", alpha=0.5, label="Poor (< 50)")
-    ax3.axvline(70, color="orange", linestyle="--", alpha=0.5, label="Good (≥ 70)")
-    ax3.axvline(85, color="green",  linestyle="--", alpha=0.5, label="Excellent (≥ 85)")
-    ax3.set_xlabel("ESG Score (0–100)", fontsize=10, color="#1a1a1a")
-    ax3.set_title("ESG Score Breakdown", fontweight="bold", color="#1a1a1a")
-    ax3.tick_params(colors="#1a1a1a")
-    ax3.legend(fontsize=8, loc="lower right")
-    ax3.grid(True, alpha=0.3, axis="x")
-    plt.tight_layout()
+    bars = ax3.barh([asset1["name"], asset2["name"], "Your Portfolio"], [asset1["esg"], asset2["esg"], esg_opt], color=["#1565C0", "#2E7D32", "#FF6F00"])
+    for bar, val in zip(bars, [asset1["esg"], asset2["esg"], esg_opt]):
+        ax3.text(val + 0.8, bar.get_y() + bar.get_height()/2, f"{val:.1f}", va="center", fontweight="bold")
+    ax3.set_xlim(0, 110)
+    ax3.set_xlabel("ESG score")
+    ax3.set_title("ESG score comparison")
+    ax3.grid(True, axis="x", alpha=0.3)
     st.pyplot(fig3)
 
-# ──────────────────────────────────────────────────────────
-# TAB 3: HOW IT WORKS
-# ──────────────────────────────────────────────────────────
-with tab_explain:
-    st.markdown("### 📚 How QGreen Works")
+with tab3:
+    st.markdown("### How the app works")
     st.markdown(f"""
-**The Utility Function (Lecture 6)**
+- **Risk quiz** maps your answers into a risk-aversion coefficient **γ = {gamma}**.
+- **ESG preference slider** sets **λ = {lambda_esg:.2f}**, which controls how much extra utility you get from a greener portfolio.
+- QGreen then evaluates 1,000 weight combinations between the two assets and selects the portfolio that maximises:
 
-QGreen tests 1,000 possible portfolio combinations and selects the one that
-maximises this ESG-adjusted utility function:
+> **U = E[R_p] - 0.5·γ·σ²_p + λ·(ESG_p / 100)**
 
-> **U = μₚ − ½ · γ · σ²ₚ + λ · (ESGₚ / 100)**
-
-| Symbol | Meaning | Your Value |
-|--------|---------|------------|
-| μₚ | Portfolio expected return | {ret_opt*100:.2f}% |
-| σ²ₚ | Portfolio variance | {std_opt**2:.6f} |
-| γ | Risk aversion coefficient | {gamma} (from your quiz) |
-| λ | ESG preference weight | {lamda} |
-| ESGₚ | Portfolio ESG score | {esg_opt:.1f} / 100 |
-
-When λ = 0, the formula reduces to **pure mean-variance optimisation** (no ESG).
-As λ increases, portfolios with higher ESG scores are increasingly rewarded.
-
-**ESG Data Source**
-
-ESG scores are sourced from a real 2025 dataset covering **549 publicly listed companies**.
-Scores reflect Environmental, Social and Governance performance and range from 0–100.
+This follows the Week 6 portfolio-management framework, where ESG is treated as an additional source of utility in portfolio choice fileciteturn7file3L4-L6.
     """)
 
-    if esg_model.startswith("🚫"):
-        st.info(f"**Model 1.0 — Exclusion Screening:** Assets with ESG below **{esg_threshold}** are removed before optimisation. This mirrors how ESG funds exclude sin stocks (tobacco, weapons, fossil fuels).")
-    elif esg_model.startswith("🏅"):
-        st.info("**Model 2.0 — Best-in-Class:** The stronger ESG performer receives a 15% bonus, incentivising relative ESG leadership without excluding whole industries.")
-    else:
-        st.info(f"**Model 3.0 — Full Integration:** ESG is embedded directly into the utility function via λ = {lamda}. The optimiser naturally favours higher-ESG assets when it improves overall utility.")
+    st.markdown("### What each mode means")
+    st.markdown("""
+- **Mode A** is the most user-friendly: QGreen chooses the two companies for the user.
+- **Mode B** is more specific: the user picks two real companies and QGreen handles the rest.
+- **Mode C** is the base-case assignment requirement: the user manually enters both assets' return, standard deviation, correlation, risk-free rate, and ESG score.
+    """)
 
-    st.markdown(f"""
-**Your Results**
-- Optimal: **{w1_opt*100:.1f}% {asset1_name}** / **{w2_opt*100:.1f}% {asset2_name}**
-- Expected Return: **{ret_opt*100:.2f}%** | Risk: **{std_opt*100:.2f}%** | ESG: **{esg_opt:.1f}/100** | Sharpe: **{sharpe_opt:.2f}**
+    st.markdown("### Notes for your poster / demo")
+    st.markdown("""
+- The group brief requires the app to ask for risk preferences, ESG preferences, and two-asset characteristics, then construct the ESG-efficient frontier and determine the optimal portfolio fileciteturn8file1L9-L18.
+- Modes A and B are extra design features that make your app more interactive and more suitable for retail users.
+- In the current dataset, only ESG scores are provided directly, so QGreen uses transparent demo assumptions for expected return and volatility in modes A and B. Mode C gives full manual control.
     """)
 
     st.markdown("""
 <div class="disclaimer">
-⚠️ For educational purposes only (ECN316, QMUL). Not financial advice.
-</div>""", unsafe_allow_html=True)
+This app is for educational use only. It demonstrates the Week 6 lecture logic and the group-project brief, not real investment advice.
+</div>
+""", unsafe_allow_html=True)
