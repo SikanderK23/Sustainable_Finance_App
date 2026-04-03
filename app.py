@@ -45,10 +45,16 @@ st.markdown("""
     }
     div[data-testid="metric-container"] label { color: #2E7D32 !important; font-weight: 600; }
 
-    /* Sidebar */
+    /* Sidebar — force all text dark so it shows on light background */
     section[data-testid="stSidebar"] { background-color: #f1f8f1; }
-    section[data-testid="stSidebar"] h2 { color: #1B5E20; }
-    section[data-testid="stSidebar"] h3 { color: #2E7D32; border-bottom: 2px solid #a5d6a7; padding-bottom: 4px; }
+    section[data-testid="stSidebar"] * { color: #1a1a1a !important; }
+    section[data-testid="stSidebar"] h2 { color: #1B5E20 !important; font-weight: 700; }
+    section[data-testid="stSidebar"] h3 { color: #2E7D32 !important; border-bottom: 2px solid #a5d6a7; padding-bottom: 4px; }
+    section[data-testid="stSidebar"] .stRadio label { color: #1a1a1a !important; }
+    section[data-testid="stSidebar"] .stSlider label { color: #1a1a1a !important; }
+    section[data-testid="stSidebar"] .stSelectbox label { color: #1a1a1a !important; }
+    section[data-testid="stSidebar"] p { color: #1a1a1a !important; }
+    section[data-testid="stSidebar"] span { color: #1a1a1a !important; }
 
     /* Tab styling */
     button[data-baseweb="tab"] { font-size: 1rem; font-weight: 600; color: #2E7D32; }
@@ -163,19 +169,19 @@ with st.sidebar:
     with col_a:
         st.markdown("**Asset 1**")
         asset1_name = st.text_input("Name", "Apple",    key="n1")
-        r1   = st.number_input("Return (%)",   10.0, 0.0, 100.0, 0.5, key="r1") / 100
-        sd1  = st.number_input("Std Dev (%)",  18.0, 0.1, 100.0, 0.5, key="s1") / 100
-        esg1 = st.number_input("ESG (0–100)",  72.0, 0.0, 100.0, 1.0, key="e1")
+        r1   = st.number_input("Return (%)",   min_value=0.0, max_value=100.0, value=10.0, step=0.5, key="r1") / 100
+        sd1  = st.number_input("Std Dev (%)",  min_value=0.1, max_value=100.0, value=18.0, step=0.5, key="s1") / 100
+        esg1 = st.number_input("ESG (0–100)",  min_value=0.0, max_value=100.0, value=72.0, step=1.0, key="e1")
 
     with col_b:
         st.markdown("**Asset 2**")
         asset2_name = st.text_input("Name", "Unilever", key="n2")
-        r2   = st.number_input("Return (%)",    6.0, 0.0, 100.0, 0.5, key="r2") / 100
-        sd2  = st.number_input("Std Dev (%)",  12.0, 0.1, 100.0, 0.5, key="s2") / 100
-        esg2 = st.number_input("ESG (0–100)",  85.0, 0.0, 100.0, 1.0, key="e2")
+        r2   = st.number_input("Return (%)",   min_value=0.0, max_value=100.0, value=6.0,  step=0.5, key="r2") / 100
+        sd2  = st.number_input("Std Dev (%)",  min_value=0.1, max_value=100.0, value=12.0, step=0.5, key="s2") / 100
+        esg2 = st.number_input("ESG (0–100)",  min_value=0.0, max_value=100.0, value=85.0, step=1.0, key="e2")
 
     corr = st.slider("Correlation (ρ)", -1.0, 1.0, 0.3, 0.05)
-    rf   = st.number_input("Risk-free rate (%)", 4.0, 0.0, 20.0, 0.1) / 100
+    rf   = st.number_input("Risk-free rate (%)", min_value=0.0, max_value=20.0, value=4.0, step=0.1) / 100
 
     st.markdown("---")
     run = st.button("🚀 Generate My Portfolio", type="primary", use_container_width=True)
