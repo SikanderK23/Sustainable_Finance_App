@@ -556,14 +556,20 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
 
     ret_opt = w_rf * rf + alpha * ret_tang
     sd_opt = alpha * sd_tang
-    esg_opt = w1_opt * esg1 + w2_opt * esg2
     sharpe_opt = (ret_opt - rf) / sd_opt if sd_opt > 1e-10 else 0.0
+
+    # ESG of the risky (tangency) sub-portfolio — this is the point on the ESG frontier.
+    # The risk-free asset has no ESG score, so mixing in rf dilutes the total ESG.
+    # For plotting the ESG frontier, we use the RISKY-ONLY ESG (= tang_esg).
+    # For display we also keep the total-portfolio ESG (diluted by rf share).
+    tang_esg = w1_tang * esg1 + w2_tang * esg2   # lies ON the ESG frontier curve
+    esg_opt = tang_esg                              # optimal risky portfolio ESG = tangency ESG
+    esg_opt_total = w1_opt * esg1 + w2_opt * esg2  # total portfolio ESG (rf diluted)
 
     # ── Frontier arrays for plotting ─────────────────────────────────────────
     weights = np.linspace(0.0, 1.0, 500)
     all_ret = np.array([portfolio_moments(w, r1, r2, s1, s2, corr)[0] for w in weights])
     all_std = np.array([portfolio_moments(w, r1, r2, s1, s2, corr)[1] for w in weights])
-    all_esg = w1_tang * esg1 + (1 - weights) * esg2   # for frontier colour
     all_esg = np.array([w * esg1 + (1 - w) * esg2 for w in weights])
     all_sharpe = np.where(all_std > 0, (all_ret - rf) / all_std, -np.inf)
 
@@ -575,13 +581,15 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
         "ret_tang": ret_tang,
         "sd_tang": sd_tang,
         "sharpe_tang": sharpe_tang,
+        "tang_esg": tang_esg,
         "w_rf": w_rf,
         "alpha": alpha,
         "w1": w1_opt,
         "w2": w2_opt,
         "ret_opt": ret_opt,
         "sd_opt": sd_opt,
-        "esg_opt": esg_opt,
+        "esg_opt": esg_opt,           # risky sub-portfolio ESG (on frontier)
+        "esg_opt_total": esg_opt_total, # total portfolio ESG (rf-diluted)
         "sharpe_opt": sharpe_opt,
         "weights": weights,
         "all_ret": all_ret,
@@ -1038,7 +1046,8 @@ w_rf = result["w_rf"]
 alpha = result["alpha"]
 ret_opt = result["ret_opt"]
 sd_opt = result["sd_opt"]
-esg_opt = result["esg_opt"]
+esg_opt = result["esg_opt"]           # risky sub-portfolio ESG (on frontier)
+esg_opt_total = result["esg_opt_total"] # total portfolio ESG (rf diluted)
 sharpe_opt = result["sharpe_opt"]
 ret_tang = result["ret_tang"]
 sd_tang = result["sd_tang"]
@@ -1080,9 +1089,9 @@ with summary_left:
         <div class="metric-sub">Portfolio volatility</div>
     </div>
     <div class="metric-card">
-        <div class="metric-label">Portfolio ESG</div>
+        <div class="metric-label">Risky Portfolio ESG</div>
         <div class="metric-value">{esg_opt:.2f} / 100</div>
-        <div class="metric-sub">Weighted ESG (risky assets)</div>
+        <div class="metric-sub">Tangency portfolio · total portfolio ESG {esg_opt_total:.1f} (rf-diluted)</div>
     </div>
     <div class="metric-card">
         <div class="metric-label">Sharpe ratio</div>
@@ -1130,7 +1139,7 @@ with summary_right:
     fig3, ax3 = plt.subplots(figsize=(6.0, 3.3))
     fig3.patch.set_facecolor("#f4fbf5"); ax3.set_facecolor("#f4fbf5")
     scores = [asset1["esg"], asset2["esg"], esg_opt]
-    labels3 = [asset1["name"], asset2["name"], "Risky Portfolio ESG"]
+    labels3 = [asset1["name"], asset2["name"], f"Your Portfolio ({esg_opt:.1f})"]
     bars = ax3.barh(labels3, scores, color=["#145A32", "#2E8B57", "#7BC67E"])
     for bar, val in zip(bars, scores):
         ax3.text(val + 0.8, bar.get_y() + bar.get_height() / 2, f"{val:.1f}", va="center", fontweight="bold")
@@ -1149,7 +1158,8 @@ with alloc_col:
     <ul>
         <li>Expected return: <strong>{ret_opt*100:.2f}%</strong></li>
         <li>Volatility (SD): <strong>{sd_opt*100:.2f}%</strong></li>
-        <li>ESG score (risky portion): <strong>{esg_opt:.2f}/100</strong></li>
+        <li>Risky portfolio ESG: <strong>{esg_opt:.2f}/100</strong></li>
+        <li>Total portfolio ESG: <strong>{esg_opt_total:.2f}/100</strong> (rf-diluted)</li>
         <li>Sharpe ratio: <strong>{sharpe_opt:.2f}</strong></li>
         <li>Tangency Sharpe: <strong>{sharpe_tang:.2f}</strong></li>
         <li>Correlation (ρ): <strong>{corr_live:.3f}</strong> ({corr_source})</li>
@@ -1194,14 +1204,26 @@ with esg_tab:
     st.caption("Trade-off between portfolio ESG score and Sharpe ratio across all two-asset combinations.")
     fig_esg, ax_esg = plt.subplots(figsize=(9.5, 5.0))
     fig_esg.patch.set_facecolor("#f4fbf5"); ax_esg.set_facecolor("#f4fbf5")
+    tang_esg = result["tang_esg"]
     ax_esg.plot(result["all_esg"], result["all_sharpe"], color="#2e7d32", lw=2.2, label="ESG frontier (risky assets)")
-    tang_esg = w1_tang * asset1["esg"] + w2_tang * asset2["esg"]
-    ax_esg.scatter(tang_esg, sharpe_tang, marker="X", color="#D32F2F", s=130, zorder=5, label="Tangency portfolio")
-    ax_esg.scatter(esg_opt, sharpe_opt, marker="D", color="#2e7d32", s=130, zorder=5, label="Your optimal portfolio")
-    ax_esg.axvline(esg_opt, color="#2e7d32", linestyle=":", lw=1.2, alpha=0.7)
-    ax_esg.axhline(sharpe_opt, color="#2e7d32", linestyle=":", lw=1.2, alpha=0.7)
-    ax_esg.set_xlabel("Portfolio ESG score"); ax_esg.set_ylabel("Sharpe ratio")
-    ax_esg.set_title("ESG Frontier"); ax_esg.grid(True, alpha=0.28); ax_esg.legend()
+    # On the ESG frontier, the optimal risky portfolio IS the (constrained) tangency.
+    # Both share the same risky-asset ESG score and Sharpe ratio.
+    # The risk-free allocation (Stage 2) moves along the CML but does NOT change
+    # the Sharpe ratio or the risky-portion ESG — so both points coincide on this chart.
+    ax_esg.scatter(tang_esg, sharpe_tang, marker="*", color="#D32F2F", s=280, zorder=6,
+                   label=f"Tangency / optimal risky portfolio (ESG={tang_esg:.1f}, Sharpe={sharpe_tang:.2f})")
+    ax_esg.axvline(tang_esg, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
+    ax_esg.axhline(sharpe_tang, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
+    # Annotate the total portfolio ESG (rf-diluted) for transparency
+    esg_total = result["esg_opt_total"]
+    ax_esg.annotate(
+        f"Total portfolio ESG: {esg_total:.1f}\n(rf dilutes the ESG score)",
+        xy=(tang_esg, sharpe_tang), xytext=(tang_esg - 6, sharpe_tang - 0.08),
+        fontsize=8.5, color="#2e7d32",
+        arrowprops=dict(arrowstyle="->", color="#2e7d32", lw=1.2),
+    )
+    ax_esg.set_xlabel("Portfolio ESG score (risky assets)"); ax_esg.set_ylabel("Sharpe ratio")
+    ax_esg.set_title("ESG Frontier"); ax_esg.grid(True, alpha=0.28); ax_esg.legend(fontsize=9)
     st.pyplot(fig_esg)
     plt.close(fig_esg)
 
