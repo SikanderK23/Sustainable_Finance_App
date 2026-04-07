@@ -380,7 +380,25 @@ def get_asset_from_row(row, style: str, mode_label: str, market_override=None):
 #
 # ──────────────────────────────────────────────────────────────────────────────
 
-from scipy.optimize import minimize_scalar
+def _golden_section_min(f, a, b, tol=1e-9, max_iter=300):
+    """
+    Pure-numpy golden section search — minimises f on [a, b].
+    No scipy dependency. The Sharpe curve is unimodal over portfolio weights,
+    so this is guaranteed to find the global optimum.
+    """
+    gr = (np.sqrt(5) + 1) / 2
+    c = b - (b - a) / gr
+    d = a + (b - a) / gr
+    for _ in range(max_iter):
+        if abs(b - a) < tol:
+            break
+        if f(c) < f(d):
+            b = d
+        else:
+            a = c
+        c = b - (b - a) / gr
+        d = a + (b - a) / gr
+    return (a + b) / 2
 
 
 def portfolio_moments(w1, r1, r2, s1, s2, corr):
@@ -393,37 +411,20 @@ def portfolio_moments(w1, r1, r2, s1, s2, corr):
 
 def find_tangency_numerical(r1, r2, s1, s2, corr, rf, w1_lo=0.0, w1_hi=1.0):
     """
-    Numerically maximise the Sharpe ratio over w1 ∈ [w1_lo, w1_hi].
-    No-short-selling constraint is enforced via the bounds.
-    Uses scipy minimize_scalar with 'bounded' method — guaranteed global
-    optimum on a convex/unimodal Sharpe curve.
+    Maximise Sharpe ratio over w1 in [w1_lo, w1_hi] using golden section search.
+    Pure numpy — no scipy needed. Always compares interior solution with both
+    boundary points so corner solutions are handled correctly.
     """
     def neg_sharpe(w1):
         ret, sd = portfolio_moments(w1, r1, r2, s1, s2, corr)
-        if sd < 1e-10:
-            return 0.0
-        return -(ret - rf) / sd
+        return -(ret - rf) / sd if sd > 1e-10 else 0.0
 
-    if w1_lo >= w1_hi:
-        # Degenerate feasible set — only one point
+    if w1_lo >= w1_hi - 1e-10:
         return float(np.clip(w1_lo, 0.0, 1.0))
 
-    # Check boundary Sharpes in case interior max doesn't exist
-    s_lo = -neg_sharpe(w1_lo)
-    s_hi = -neg_sharpe(w1_hi)
-
-    res = minimize_scalar(neg_sharpe, bounds=(w1_lo, w1_hi), method="bounded",
-                          options={"xatol": 1e-8})
-    w1_opt = float(res.x)
-
-    # Take the best of interior + boundaries
-    best_w1 = w1_opt
-    best_sharpe = -neg_sharpe(w1_opt)
-    if s_lo > best_sharpe:
-        best_w1, best_sharpe = w1_lo, s_lo
-    if s_hi > best_sharpe:
-        best_w1, best_sharpe = w1_hi, s_hi
-
+    w1_interior = _golden_section_min(neg_sharpe, w1_lo, w1_hi)
+    candidates = [w1_lo, w1_interior, w1_hi]
+    best_w1 = min(candidates, key=neg_sharpe)
     return float(np.clip(best_w1, 0.0, 1.0))
 
 
@@ -1124,6 +1125,7 @@ with summary_right:
         at.set_color("white"); at.set_fontweight("bold")
     ax2.set_title("Total portfolio allocation", color="#123321", fontweight="bold")
     st.pyplot(fig2)
+    plt.close(fig2)
 
     fig3, ax3 = plt.subplots(figsize=(6.0, 3.3))
     fig3.patch.set_facecolor("#f4fbf5"); ax3.set_facecolor("#f4fbf5")
@@ -1135,6 +1137,7 @@ with summary_right:
     ax3.set_xlim(0, 110); ax3.set_xlabel("ESG score")
     ax3.set_title("ESG comparison", color="#123321", fontweight="bold"); ax3.grid(True, axis="x", alpha=0.25)
     st.pyplot(fig3)
+    plt.close(fig3)
 
 alloc_col, story_col = st.columns([1.35, 1.0], gap="large")
 with alloc_col:
@@ -1184,6 +1187,7 @@ with portfolio_tab:
     ax_pf.set_xlabel("Risk — standard deviation (%)"); ax_pf.set_ylabel("Expected return (%)")
     ax_pf.set_title("Portfolio Frontier & CML"); ax_pf.grid(True, alpha=0.28); ax_pf.legend(fontsize=8.5, loc="lower right")
     st.pyplot(fig_pf)
+    plt.close(fig_pf)
 
 with esg_tab:
     st.markdown("### ESG frontier")
@@ -1199,6 +1203,7 @@ with esg_tab:
     ax_esg.set_xlabel("Portfolio ESG score"); ax_esg.set_ylabel("Sharpe ratio")
     ax_esg.set_title("ESG Frontier"); ax_esg.grid(True, alpha=0.28); ax_esg.legend()
     st.pyplot(fig_esg)
+    plt.close(fig_esg)
 
 with impact_tab:
     st.markdown("### Executive impact dashboard")
