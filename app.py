@@ -989,22 +989,26 @@ if not st.session_state["inputs_complete"]:
             asset_1 = st.session_state["inputs"].get("asset_1", "")
             asset_2 = st.session_state["inputs"].get("asset_2", "")
         if mode.startswith("C"):
+            st.markdown("#### Manual asset inputs")
             c1, c2 = st.columns(2)
             with c1:
-                n1 = st.text_input("Asset 1 name", st.session_state["inputs"].get("n1", "Asset 1"))
-                t1 = st.text_input("Asset 1 ticker (for ESG lookup)", st.session_state["inputs"].get("t1", "A1"))
-                r1_pct = st.number_input("Asset 1 expected return (%)", 0.0, 100.0, float(st.session_state["inputs"].get("r1_pct", 10.0)), 0.1)
-                sd1_pct = st.number_input("Asset 1 volatility / SD (%)", 0.1, 100.0, float(st.session_state["inputs"].get("sd1_pct", 18.0)), 0.1)
-                esg1_val = st.number_input("Asset 1 ESG score (0–100)", 0.0, 100.0, float(st.session_state["inputs"].get("esg1_val", 65.0)), 0.1)
+                st.markdown("**Asset 1**")
+                n1 = st.text_input("Asset 1 name", st.session_state["inputs"].get("n1", "Asset 1"), key="intake_n1")
+                t1 = st.text_input("Asset 1 ticker (for ESG lookup)", st.session_state["inputs"].get("t1", "A1"), key="intake_t1")
+                r1_pct = st.number_input("Asset 1 expected return (%)", 0.0, 100.0, float(st.session_state["inputs"].get("r1_pct", 10.0)), 0.1, key="intake_r1")
+                sd1_pct = st.number_input("Asset 1 volatility / SD (%)", 0.1, 100.0, float(st.session_state["inputs"].get("sd1_pct", 18.0)), 0.1, key="intake_sd1")
+                esg1_val = st.number_input("Asset 1 ESG score (0–100)", 0.0, 100.0, float(st.session_state["inputs"].get("esg1_val", 65.0)), 0.1, key="intake_esg1")
             with c2:
-                n2 = st.text_input("Asset 2 name", st.session_state["inputs"].get("n2", "Asset 2"))
-                t2 = st.text_input("Asset 2 ticker (for ESG lookup)", st.session_state["inputs"].get("t2", "A2"))
-                r2_pct = st.number_input("Asset 2 expected return (%)", 0.0, 100.0, float(st.session_state["inputs"].get("r2_pct", 7.0)), 0.1)
-                sd2_pct = st.number_input("Asset 2 volatility / SD (%)", 0.1, 100.0, float(st.session_state["inputs"].get("sd2_pct", 12.0)), 0.1)
-                esg2_val = st.number_input("Asset 2 ESG score (0–100)", 0.0, 100.0, float(st.session_state["inputs"].get("esg2_val", 85.0)), 0.1)
-            corr_manual = st.number_input("Correlation between assets (ρ)", -1.0, 1.0, float(st.session_state["inputs"].get("corr_manual", 0.30)), 0.05)
+                st.markdown("**Asset 2**")
+                n2 = st.text_input("Asset 2 name", st.session_state["inputs"].get("n2", "Asset 2"), key="intake_n2")
+                t2 = st.text_input("Asset 2 ticker (for ESG lookup)", st.session_state["inputs"].get("t2", "A2"), key="intake_t2")
+                r2_pct = st.number_input("Asset 2 expected return (%)", 0.0, 100.0, float(st.session_state["inputs"].get("r2_pct", 7.0)), 0.1, key="intake_r2")
+                sd2_pct = st.number_input("Asset 2 volatility / SD (%)", 0.1, 100.0, float(st.session_state["inputs"].get("sd2_pct", 12.0)), 0.1, key="intake_sd2")
+                esg2_val = st.number_input("Asset 2 ESG score (0–100)", 0.0, 100.0, float(st.session_state["inputs"].get("esg2_val", 85.0)), 0.1, key="intake_esg2")
+            corr_manual = st.number_input("Correlation between assets (ρ)", -1.0, 1.0, float(st.session_state["inputs"].get("corr_manual", 0.30)), 0.05, key="intake_corr")
         else:
             n1=t1=n2=t2=""; r1_pct=sd1_pct=esg1_val=r2_pct=sd2_pct=esg2_val=corr_manual=None
+        st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
         submitted = st.form_submit_button("Build dashboard", type="primary", use_container_width=True)
         if submitted:
             st.session_state["inputs"] = {
