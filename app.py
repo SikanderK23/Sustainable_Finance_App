@@ -162,6 +162,50 @@ st.markdown("""
     div[data-baseweb="popover"] *, div[role="listbox"] *, ul[role="listbox"] *, li[role="option"] * {
         color: #132218 !important; background: transparent !important;
     }
+
+    /* Dark-mode resilience for BaseWeb inputs and dropdowns */
+    input, textarea, input::placeholder, textarea::placeholder {
+        color: #132218 !important;
+        -webkit-text-fill-color: #132218 !important;
+        opacity: 1 !important;
+    }
+    .stTextInput input, .stNumberInput input, .stTextArea textarea {
+        color: #132218 !important;
+        -webkit-text-fill-color: #132218 !important;
+        caret-color: #132218 !important;
+        background: rgba(255,255,255,0.96) !important;
+    }
+    .stSelectbox label, .stTextInput label, .stNumberInput label, .stTextArea label { color: #132218 !important; }
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="popover"],
+    div[role="listbox"],
+    ul[role="listbox"],
+    li[role="option"] {
+        background: #ffffff !important;
+        color: #132218 !important;
+        border-color: rgba(46,125,50,0.18) !important;
+    }
+    div[data-baseweb="select"] [data-testid="stMarkdownContainer"],
+    div[data-baseweb="select"] span,
+    div[data-baseweb="select"] div,
+    div[data-baseweb="select"] svg,
+    div[data-baseweb="popover"] *,
+    div[role="listbox"] *,
+    ul[role="listbox"] *,
+    li[role="option"] * {
+        color: #132218 !important;
+        fill: #132218 !important;
+        background: transparent !important;
+        -webkit-text-fill-color: #132218 !important;
+    }
+    li[role="option"][aria-selected="true"],
+    li[role="option"]:hover,
+    div[role="option"][aria-selected="true"],
+    div[role="option"]:hover {
+        background: #e8f5e9 !important;
+        color: #132218 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
