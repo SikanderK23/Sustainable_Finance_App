@@ -17,7 +17,7 @@ st.set_page_config(
     page_title="QGreen — Sustainable Portfolio Advisor",
     page_icon="🌿",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ============================================================
@@ -154,6 +154,14 @@ st.markdown("""
     @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0px); } }
     @keyframes pulseGlow { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-1px); } }
     @media (max-width: 1100px) { .metric-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); } .impact-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); } }
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stMainBlockContainer"] { color-scheme: light !important; }
+    div[data-baseweb="select"] * { color: #132218 !important; }
+    div[data-baseweb="popover"], div[role="listbox"], ul[role="listbox"], li[role="option"] {
+        background: #ffffff !important; color: #132218 !important;
+    }
+    div[data-baseweb="popover"] *, div[role="listbox"] *, ul[role="listbox"] *, li[role="option"] * {
+        color: #132218 !important; background: transparent !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -854,85 +862,143 @@ for col, (title, desc, badge, mode_value) in zip((m1, m2, m3), card_specs):
     <p>{desc}</p>
     <span class='mode-badge'>{badge}</span>
 </div>""", unsafe_allow_html=True)
-    if col.button("Select" if st.session_state["mode"] != mode_value else "✓ Selected", key=f"mode_btn_{mode_value}", use_container_width=True):
+    if col.button("Choose mode", key=f"mode_btn_{mode_value}", use_container_width=True):
         st.session_state["mode"] = mode_value
         st.rerun()
 
 mode = st.session_state["mode"]
 
 # ============================================================
-# SIDEBAR
+# INPUT FLOW
 # ============================================================
-with st.sidebar:
-    st.markdown("## ⚙️ Portfolio Builder")
-    client_name = st.text_input("Client name", value=st.session_state.get("client_name", ""), placeholder="Enter client name")
-    st.session_state["client_name"] = client_name
-
-    st.markdown("---")
-    st.markdown("### 📊 Step 1 — How do you feel about risk?")
-    q1 = st.radio("If your portfolio drops 20%, you:", ["Sell to cut losses", "Hold and wait it out", "Buy more — great opportunity"], index=1)
-    q2 = st.radio("Your investment horizon is:", ["Under 2 years", "2–10 years", "Over 10 years"], index=1)
-    q3 = st.radio("Your main goal is:", ["Protecting what I have", "Balanced growth and stability", "Maximum long-term growth"], index=1)
-    score_map = {
-        "Sell to cut losses": 1, "Hold and wait it out": 2, "Buy more — great opportunity": 3,
-        "Under 2 years": 1, "2–10 years": 2, "Over 10 years": 3,
-        "Protecting what I have": 1, "Balanced growth and stability": 2, "Maximum long-term growth": 3,
+def _default_inputs():
+    return {
+        "client_name": "",
+        "q1": "Hold and wait it out",
+        "q2": "2–10 years",
+        "q3": "Balanced growth and stability",
+        "q_esg": [1, 1, 1, 1, 1, 1, 1],
+        "esg_threshold": 50,
+        "min_esg_score": 0,
+        "rf_pct": 4.5,
+        "asset_1": company_names[0] if company_names else "",
+        "asset_2": company_names[1] if len(company_names) > 1 else (company_names[0] if company_names else ""),
+        "n1": "Asset 1",
+        "t1": "A1",
+        "r1_pct": 10.0,
+        "sd1_pct": 18.0,
+        "esg1_val": 65.0,
+        "n2": "Asset 2",
+        "t2": "A2",
+        "r2_pct": 7.0,
+        "sd2_pct": 12.0,
+        "esg2_val": 85.0,
+        "corr_manual": 0.30,
     }
-    quiz_score = score_map[q1] + score_map[q2] + score_map[q3]
-    gamma, risk_label = risk_profile_from_quiz(quiz_score)
-    st.success(f"Risk profile: {risk_label}")
 
-    st.markdown("---")
-    st.markdown("### 🌱 Step 2 — How much do you care about ESG?")
-    st.caption("Slide each answer from 0 (not important) to 3 (very important).")
-    q_esg = [
-        st.slider("Avoiding controversial sectors entirely", 0, 3, 1, help="0 = don't care, 3 = very important"),
-        st.slider("Comparing firms relative to their industry peers", 0, 3, 1),
-        st.slider("Investments contributing to positive E/S outcomes", 0, 3, 1),
-        st.slider("Accepting slightly lower returns for stronger ESG", 0, 3, 1),
-        st.slider("Environmental factors (emissions, climate)", 0, 3, 1),
-        st.slider("Social factors (labour, diversity)", 0, 3, 1),
-        st.slider("Governance factors (board, transparency)", 0, 3, 1),
-    ]
-    esg_pref = derive_esg_preferences(q_esg)
-    lambda_esg = esg_pref["lambda"]
-    esg_mode = esg_pref["model_name"]
+if "inputs_complete" not in st.session_state:
+    st.session_state["inputs_complete"] = False
+if "inputs" not in st.session_state:
+    st.session_state["inputs"] = _default_inputs()
 
-    st.markdown(f"""
-<div class="strategy-box">
-    <div class="strategy-title">Your ESG model</div>
-    <div><strong>{esg_mode}</strong></div>
-    <div style="margin-top:0.35rem;">{esg_pref['description']}</div>
-</div>""", unsafe_allow_html=True)
+if not st.session_state["inputs_complete"]:
+    st.markdown("### Client intake")
+    st.markdown("<div class='soft-box'><h4>Complete the portfolio brief</h4><p>Answer the questions below, then QGreen will build the dashboard using your selected mode.</p></div>", unsafe_allow_html=True)
+    with st.form("qgreen_intake_form"):
+        client_name = st.text_input("Client name", value=st.session_state["inputs"].get("client_name", ""), placeholder="Enter client name")
+        st.markdown("#### 1) Risk profile")
+        q1 = st.radio("If your portfolio drops 20%, you:", ["Sell to cut losses", "Hold and wait it out", "Buy more — great opportunity"], index=["Sell to cut losses", "Hold and wait it out", "Buy more — great opportunity"].index(st.session_state["inputs"].get("q1", "Hold and wait it out")), horizontal=True)
+        q2 = st.radio("Your investment horizon is:", ["Under 2 years", "2–10 years", "Over 10 years"], index=["Under 2 years", "2–10 years", "Over 10 years"].index(st.session_state["inputs"].get("q2", "2–10 years")), horizontal=True)
+        q3 = st.radio("Your main goal is:", ["Protecting what I have", "Balanced growth and stability", "Maximum long-term growth"], index=["Protecting what I have", "Balanced growth and stability", "Maximum long-term growth"].index(st.session_state["inputs"].get("q3", "Balanced growth and stability")), horizontal=True)
+        st.markdown("#### 2) ESG preferences")
+        st.caption("Slide each answer from 0 (not important) to 3 (very important).")
+        defaults = st.session_state["inputs"].get("q_esg", [1,1,1,1,1,1,1])
+        q_esg = [
+            st.slider("Avoiding controversial sectors entirely", 0, 3, int(defaults[0])),
+            st.slider("Comparing firms relative to their industry peers", 0, 3, int(defaults[1])),
+            st.slider("Investments contributing to positive E/S outcomes", 0, 3, int(defaults[2])),
+            st.slider("Accepting slightly lower returns for stronger ESG", 0, 3, int(defaults[3])),
+            st.slider("Environmental factors (emissions, climate)", 0, 3, int(defaults[4])),
+            st.slider("Social factors (labour, diversity)", 0, 3, int(defaults[5])),
+            st.slider("Governance factors (board, transparency)", 0, 3, int(defaults[6])),
+        ]
+        esg_pref_preview = derive_esg_preferences(q_esg)
+        st.markdown(f"<div class='strategy-box'><div class='strategy-title'>Selected ESG model</div><div><strong>{esg_pref_preview['model_name']}</strong></div><div style='margin-top:0.35rem;'>{esg_pref_preview['description']}</div></div>", unsafe_allow_html=True)
+        esg_threshold = st.session_state["inputs"].get("esg_threshold", 50)
+        if "Exclusion Screen" in esg_pref_preview["model_name"]:
+            esg_threshold = st.slider("Minimum ESG score to include", 0, 100, int(esg_threshold))
+        min_esg_score = st.session_state["inputs"].get("min_esg_score", 0)
+        if "Best-in-Class" in esg_pref_preview["model_name"] or "ESG Integration" in esg_pref_preview["model_name"]:
+            min_esg_score = st.slider("Minimum portfolio ESG score", 0, 100, int(min_esg_score))
+        rf_pct = st.number_input("Risk-free rate (%)", min_value=0.0, max_value=20.0, value=float(st.session_state["inputs"].get("rf_pct", 4.5)), step=0.1)
+        st.markdown("#### 3) Portfolio construction mode")
+        st.info(f"Current mode: {mode}")
+        if mode.startswith("B"):
+            c1, c2 = st.columns(2)
+            with c1:
+                asset_1 = st.selectbox("Asset 1", company_names, index=company_names.index(st.session_state["inputs"].get("asset_1", company_names[0])) if company_names and st.session_state["inputs"].get("asset_1", company_names[0]) in company_names else 0)
+            with c2:
+                available2 = [n for n in company_names if n != asset_1]
+                asset_2_default = st.session_state["inputs"].get("asset_2", available2[0] if available2 else asset_1)
+                asset_2 = st.selectbox("Asset 2", available2, index=available2.index(asset_2_default) if available2 and asset_2_default in available2 else 0)
+        else:
+            asset_1 = st.session_state["inputs"].get("asset_1", "")
+            asset_2 = st.session_state["inputs"].get("asset_2", "")
+        if mode.startswith("C"):
+            c1, c2 = st.columns(2)
+            with c1:
+                n1 = st.text_input("Asset 1 name", st.session_state["inputs"].get("n1", "Asset 1"))
+                t1 = st.text_input("Asset 1 ticker (for ESG lookup)", st.session_state["inputs"].get("t1", "A1"))
+                r1_pct = st.number_input("Asset 1 expected return (%)", 0.0, 100.0, float(st.session_state["inputs"].get("r1_pct", 10.0)), 0.1)
+                sd1_pct = st.number_input("Asset 1 volatility / SD (%)", 0.1, 100.0, float(st.session_state["inputs"].get("sd1_pct", 18.0)), 0.1)
+                esg1_val = st.number_input("Asset 1 ESG score (0–100)", 0.0, 100.0, float(st.session_state["inputs"].get("esg1_val", 65.0)), 0.1)
+            with c2:
+                n2 = st.text_input("Asset 2 name", st.session_state["inputs"].get("n2", "Asset 2"))
+                t2 = st.text_input("Asset 2 ticker (for ESG lookup)", st.session_state["inputs"].get("t2", "A2"))
+                r2_pct = st.number_input("Asset 2 expected return (%)", 0.0, 100.0, float(st.session_state["inputs"].get("r2_pct", 7.0)), 0.1)
+                sd2_pct = st.number_input("Asset 2 volatility / SD (%)", 0.1, 100.0, float(st.session_state["inputs"].get("sd2_pct", 12.0)), 0.1)
+                esg2_val = st.number_input("Asset 2 ESG score (0–100)", 0.0, 100.0, float(st.session_state["inputs"].get("esg2_val", 85.0)), 0.1)
+            corr_manual = st.number_input("Correlation between assets (ρ)", -1.0, 1.0, float(st.session_state["inputs"].get("corr_manual", 0.30)), 0.05)
+        else:
+            n1=t1=n2=t2=""; r1_pct=sd1_pct=esg1_val=r2_pct=sd2_pct=esg2_val=corr_manual=None
+        submitted = st.form_submit_button("Build dashboard", type="primary", use_container_width=True)
+        if submitted:
+            st.session_state["inputs"] = {
+                "client_name": client_name,
+                "q1": q1, "q2": q2, "q3": q3,
+                "q_esg": q_esg,
+                "esg_threshold": esg_threshold,
+                "min_esg_score": min_esg_score,
+                "rf_pct": rf_pct,
+                "asset_1": asset_1, "asset_2": asset_2,
+                "n1": n1, "t1": t1, "r1_pct": r1_pct, "sd1_pct": sd1_pct, "esg1_val": esg1_val,
+                "n2": n2, "t2": t2, "r2_pct": r2_pct, "sd2_pct": sd2_pct, "esg2_val": esg2_val,
+                "corr_manual": corr_manual,
+            }
+            st.session_state["inputs_complete"] = True
+            st.rerun()
+    st.stop()
 
-    esg_threshold = 0.0
-    if "Exclusion Screen" in esg_mode:
-        esg_threshold = st.slider("Minimum ESG score to include", 0, 100, 50,
-                                   help="Assets with an ESG score below this value will be excluded from the portfolio entirely.")
-
-    # Min portfolio ESG score — available for Best-in-Class and ESG Integration
-    min_esg_score = 0.0
-    if "Best-in-Class" in esg_mode or "ESG Integration" in esg_mode:
-        st.markdown("**Minimum portfolio ESG score**")
-        min_esg_score = st.slider(
-            "My portfolio ESG score must be at least:",
-            min_value=0, max_value=100, value=0,
-            help=(
-                "This sets a hard floor on the weighted-average ESG score of your portfolio. "
-                "A higher floor forces more weight into the higher-ESG asset, "
-                "which may reduce financial returns. This is the academically correct "
-                "way to model ESG preferences (Pedersen et al., 2021)."
-            )
-        )
-        if min_esg_score > 0:
-            st.caption(f"Your portfolio's weighted ESG score will be ≥ {min_esg_score}.")
-
-    st.markdown("---")
-    st.markdown("### 💰 Risk-free rate")
-    rf = st.number_input("Risk-free rate (%)", min_value=0.0, max_value=20.0, value=4.5, step=0.1,
-                          help="Default is 4.5% (approximate current UK gilt yield). Change this if you have a different risk-free benchmark.") / 100
-
-    run = st.button("🚀 Build my portfolio", type="primary", use_container_width=True)
+inputs = st.session_state["inputs"]
+client_name = inputs.get("client_name", "")
+q1 = inputs["q1"]; q2 = inputs["q2"]; q3 = inputs["q3"]
+q_esg = inputs["q_esg"]
+esg_threshold = float(inputs.get("esg_threshold", 50))
+min_esg_score = float(inputs.get("min_esg_score", 0))
+rf = float(inputs.get("rf_pct", 4.5)) / 100
+score_map = {
+    "Sell to cut losses": 1, "Hold and wait it out": 2, "Buy more — great opportunity": 3,
+    "Under 2 years": 1, "2–10 years": 2, "Over 10 years": 3,
+    "Protecting what I have": 1, "Balanced growth and stability": 2, "Maximum long-term growth": 3,
+}
+quiz_score = score_map[q1] + score_map[q2] + score_map[q3]
+gamma, risk_label = risk_profile_from_quiz(quiz_score)
+esg_pref = derive_esg_preferences(q_esg)
+lambda_esg = esg_pref["lambda"]
+esg_mode = esg_pref["model_name"]
+if st.button("Edit inputs", use_container_width=False):
+    st.session_state["inputs_complete"] = False
+    st.rerun()
 
 display_client_name = client_name.strip() if client_name and client_name.strip() else "Client"
 
@@ -966,13 +1032,8 @@ if mode.startswith("A"):
                 data_message = "Live market data unavailable — using QGreen estimates with a default correlation of 0.30."
 
 elif mode.startswith("B"):
-    st.subheader("Choose your two assets")
-    c1, c2 = st.columns(2)
-    with c1:
-        name1 = st.selectbox("Asset 1", company_names, key="b_company1")
-    with c2:
-        available2 = [n for n in company_names if n != name1]
-        name2 = st.selectbox("Asset 2", available2, key="b_company2")
+    name1 = inputs.get("asset_1", company_names[0] if company_names else "")
+    name2 = inputs.get("asset_2", company_names[1] if len(company_names) > 1 else name1)
     row1 = esg_df.loc[esg_df["comname"] == name1].iloc[0]
     row2 = esg_df.loc[esg_df["comname"] == name2].iloc[0]
     with st.spinner("Fetching live market data and correlation…"):
@@ -992,41 +1053,23 @@ elif mode.startswith("B"):
     mode_explainer = "You picked two assets and QGreen fetched live data and computed the optimal portfolio."
 
 else:
-    st.subheader("Enter both assets manually")
-    c1, c2 = st.columns(2)
-    with c1:
-        n1 = st.text_input("Asset 1 name", "Asset 1")
-        t1 = st.text_input("Asset 1 ticker (for ESG lookup)", "A1")
-        r1 = st.number_input("Asset 1 expected return (%)", 0.0, 100.0, 10.0, 0.1, key="c_r1") / 100
-        sd1 = st.number_input("Asset 1 volatility / SD (%)", 0.1, 100.0, 18.0, 0.1, key="c_sd1") / 100
-        esg1_val = st.number_input("Asset 1 ESG score (0–100)", 0.0, 100.0, 65.0, 0.1, key="c_esg1")
-    with c2:
-        n2 = st.text_input("Asset 2 name", "Asset 2")
-        t2 = st.text_input("Asset 2 ticker (for ESG lookup)", "A2")
-        r2 = st.number_input("Asset 2 expected return (%)", 0.0, 100.0, 7.0, 0.1, key="c_r2") / 100
-        sd2 = st.number_input("Asset 2 volatility / SD (%)", 0.1, 100.0, 12.0, 0.1, key="c_sd2") / 100
-        esg2_val = st.number_input("Asset 2 ESG score (0–100)", 0.0, 100.0, 85.0, 0.1, key="c_esg2")
-    corr_live = st.number_input("Correlation between assets (ρ)", -1.0, 1.0, 0.30, 0.05, key="c_corr")
+    n1 = inputs.get("n1", "Asset 1")
+    t1 = inputs.get("t1", "A1")
+    r1 = float(inputs.get("r1_pct", 10.0)) / 100
+    sd1 = float(inputs.get("sd1_pct", 18.0)) / 100
+    esg1_val = float(inputs.get("esg1_val", 65.0))
+    n2 = inputs.get("n2", "Asset 2")
+    t2 = inputs.get("t2", "A2")
+    r2 = float(inputs.get("r2_pct", 7.0)) / 100
+    sd2 = float(inputs.get("sd2_pct", 12.0)) / 100
+    esg2_val = float(inputs.get("esg2_val", 85.0))
+    corr_live = float(inputs.get("corr_manual", 0.30))
     corr_source = "Manual input"
     asset1 = build_asset(n1, t1, r1, sd1, esg1_val, "Manual input", "C")
     asset2 = build_asset(n2, t2, r2, sd2, esg2_val, "Manual input", "C")
     mode_explainer = "You entered both assets manually."
 
-# ── PRE-RUN ──
-if not run:
-    st.markdown("### How to use QGreen")
-    st.markdown(f"""
-<div class="soft-box">
-    <h4>Selected mode: {mode}</h4>
-    <p><strong>Client:</strong> {display_client_name}</p>
-    <p>{mode_explainer or 'Choose a mode above, set your preferences in the sidebar, then click Build my portfolio.'}</p>
-    <ul>
-        <li><strong>Step 1:</strong> Answer the risk quiz — QGreen derives your risk profile automatically.</li>
-        <li><strong>Step 2:</strong> Set your ESG preferences — QGreen picks the right sustainable finance model.</li>
-        <li><strong>Step 3:</strong> Click <em>Build my portfolio</em>. QGreen forms the ESG-constrained tangency portfolio, then allocates between it and the risk-free asset based on your risk profile.</li>
-    </ul>
-</div>""", unsafe_allow_html=True)
-    st.stop()
+# ── DASHBOARD RENDERS DIRECTLY AFTER THE INTAKE FORM ──
 
 if asset1 is None or asset2 is None:
     st.error("Could not build assets. Please check your inputs or choose a different mode.")
@@ -1214,14 +1257,6 @@ with esg_tab:
                    label=f"Tangency / optimal risky portfolio (ESG={tang_esg:.1f}, Sharpe={sharpe_tang:.2f})")
     ax_esg.axvline(tang_esg, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
     ax_esg.axhline(sharpe_tang, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
-    # Annotate the total portfolio ESG (rf-diluted) for transparency
-    esg_total = result["esg_opt_total"]
-    ax_esg.annotate(
-        f"Total portfolio ESG: {esg_total:.1f}\n(rf dilutes the ESG score)",
-        xy=(tang_esg, sharpe_tang), xytext=(tang_esg - 6, sharpe_tang - 0.08),
-        fontsize=8.5, color="#2e7d32",
-        arrowprops=dict(arrowstyle="->", color="#2e7d32", lw=1.2),
-    )
     ax_esg.set_xlabel("Portfolio ESG score (risky assets)"); ax_esg.set_ylabel("Sharpe ratio")
     ax_esg.set_title("ESG Frontier"); ax_esg.grid(True, alpha=0.28); ax_esg.legend(fontsize=9)
     st.pyplot(fig_esg)
