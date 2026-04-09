@@ -74,11 +74,12 @@ st.markdown("""
     .hero p { color: rgba(255,255,255,0.95) !important; margin-top: 0.45rem; font-size: 1.05rem; max-width: 840px; }
     .glass-card {
         background: rgba(255,255,255,0.74); border: 1px solid rgba(255,255,255,0.55);
-        backdrop-filter: blur(10px); border-radius: 20px; padding: 1.1rem 1.15rem;
-        box-shadow: 0 12px 30px rgba(19,34,24,0.06); min-height: 190px; height: 190px;
+        backdrop-filter: blur(10px); border-radius: 20px; padding: 1.2rem 1.2rem 1.3rem 1.2rem;
+        box-shadow: 0 12px 30px rgba(19,34,24,0.06); min-height: 225px; height: 225px;
         display: flex; flex-direction: column; justify-content: space-between;
         cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
+    .glass-card p { flex-grow: 1; margin-bottom: 0.8rem; }
     .glass-card:hover { transform: translateY(-2px); box-shadow: 0 18px 36px rgba(19,34,24,0.12); }
     .glass-card h4 { margin: 0 0 0.4rem 0; color: #1b5e20 !important; }
     .glass-card p { color: #23412d !important; }
@@ -1211,7 +1212,7 @@ with alloc_col:
         <li>Expected return: <strong>{ret_opt*100:.2f}%</strong></li>
         <li>Volatility (SD): <strong>{sd_opt*100:.2f}%</strong></li>
         <li>Risky portfolio ESG: <strong>{esg_opt:.2f}/100</strong></li>
-        <li>Total portfolio ESG: <strong>{esg_opt_total:.2f}/100</strong></li>
+        <li>Total portfolio ESG: <strong>{esg_opt_total:.2f}/100</strong> (rf-diluted)</li>
         <li>Sharpe ratio: <strong>{sharpe_opt:.2f}</strong></li>
         <li>Tangency Sharpe: <strong>{sharpe_tang:.2f}</strong></li>
         <li>Correlation (ρ): <strong>{corr_live:.3f}</strong> ({corr_source})</li>
@@ -1269,6 +1270,7 @@ with esg_tab:
     # Annotate the total portfolio ESG (rf-diluted) for transparency
     esg_total = result["esg_opt_total"]
     ax_esg.annotate(
+        f"Total portfolio ESG: {esg_total:.1f}\n(rf dilutes the ESG score)",
         xy=(tang_esg, sharpe_tang), xytext=(tang_esg - 6, sharpe_tang - 0.08),
         fontsize=8.5, color="#2e7d32",
         arrowprops=dict(arrowstyle="->", color="#2e7d32", lw=1.2),
