@@ -75,7 +75,8 @@ st.markdown("""
     .glass-card {
         background: rgba(255,255,255,0.74); border: 1px solid rgba(255,255,255,0.55);
         backdrop-filter: blur(10px); border-radius: 20px; padding: 1.1rem 1.15rem;
-        box-shadow: 0 12px 30px rgba(19,34,24,0.06); min-height: 160px;
+        box-shadow: 0 12px 30px rgba(19,34,24,0.06); min-height: 190px; height: 190px;
+        display: flex; flex-direction: column; justify-content: space-between;
         cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
     .glass-card:hover { transform: translateY(-2px); box-shadow: 0 18px 36px rgba(19,34,24,0.12); }
@@ -154,6 +155,7 @@ st.markdown("""
     @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0px); } }
     @keyframes pulseGlow { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-1px); } }
     @media (max-width: 1100px) { .metric-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); } .impact-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); } }
+
     html, body, [data-testid="stAppViewContainer"], [data-testid="stMainBlockContainer"] { color-scheme: light !important; }
     div[data-baseweb="select"] * { color: #132218 !important; }
     div[data-baseweb="popover"], div[role="listbox"], ul[role="listbox"], li[role="option"] {
@@ -204,7 +206,6 @@ st.markdown("""
         background: #e8f5e9 !important;
         color: #132218 !important;
     }
-
 </style>
 """, unsafe_allow_html=True)
 
