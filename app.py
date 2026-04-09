@@ -89,7 +89,7 @@ st.markdown("""
     }
     .glass-card.selected h4, .glass-card.selected p, .glass-card.selected .mode-badge { color: white !important; }
     .mode-badge {
-        display: inline-block; margin-top: 0.55rem; padding: 0.28rem 0.65rem;
+        display: inline-flex; align-self: flex-start; margin-top: auto; padding: 0.28rem 0.65rem;
         border-radius: 999px; background: rgba(27,94,32,0.10); color: #1b5e20 !important;
         font-size: 0.78rem; font-weight: 800; letter-spacing: 0.2px;
     }
@@ -1267,14 +1267,6 @@ with esg_tab:
                    label=f"Tangency / optimal risky portfolio (ESG={tang_esg:.1f}, Sharpe={sharpe_tang:.2f})")
     ax_esg.axvline(tang_esg, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
     ax_esg.axhline(sharpe_tang, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
-    # Annotate the total portfolio ESG (rf-diluted) for transparency
-    esg_total = result["esg_opt_total"]
-    ax_esg.annotate(
-        f"Total portfolio ESG: {esg_total:.1f}\n(rf dilutes the ESG score)",
-        xy=(tang_esg, sharpe_tang), xytext=(tang_esg - 6, sharpe_tang - 0.08),
-        fontsize=8.5, color="#2e7d32",
-        arrowprops=dict(arrowstyle="->", color="#2e7d32", lw=1.2),
-    )
     ax_esg.set_xlabel("Portfolio ESG score (risky assets)"); ax_esg.set_ylabel("Sharpe ratio")
     ax_esg.set_title("ESG Frontier"); ax_esg.grid(True, alpha=0.28); ax_esg.legend(fontsize=9)
     st.pyplot(fig_esg)
