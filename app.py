@@ -1211,7 +1211,7 @@ with alloc_col:
         <li>Expected return: <strong>{ret_opt*100:.2f}%</strong></li>
         <li>Volatility (SD): <strong>{sd_opt*100:.2f}%</strong></li>
         <li>Risky portfolio ESG: <strong>{esg_opt:.2f}/100</strong></li>
-        <li>Total portfolio ESG: <strong>{esg_opt_total:.2f}/100</strong> (rf-diluted)</li>
+        <li>Total portfolio ESG: <strong>{esg_opt_total:.2f}/100</strong></li>
         <li>Sharpe ratio: <strong>{sharpe_opt:.2f}</strong></li>
         <li>Tangency Sharpe: <strong>{sharpe_tang:.2f}</strong></li>
         <li>Correlation (ρ): <strong>{corr_live:.3f}</strong> ({corr_source})</li>
@@ -1269,7 +1269,6 @@ with esg_tab:
     # Annotate the total portfolio ESG (rf-diluted) for transparency
     esg_total = result["esg_opt_total"]
     ax_esg.annotate(
-        f"Total portfolio ESG: {esg_total:.1f}\n(rf dilutes the ESG score)",
         xy=(tang_esg, sharpe_tang), xytext=(tang_esg - 6, sharpe_tang - 0.08),
         fontsize=8.5, color="#2e7d32",
         arrowprops=dict(arrowstyle="->", color="#2e7d32", lw=1.2),
