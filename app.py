@@ -1384,6 +1384,19 @@ with mc_tab:
     st.caption(
         "Simulates possible future paths using Geometric Brownian Motion: dS/S = μdt + σdW. Verified drift adjustment (μ - ½σ²) for log-normal returns.")
 
+    # ── Sanity check warning ──────────────────────────────────────────────────
+    HIGH_RETURN_THRESHOLD = 0.25
+    return_is_suspect = ret_opt > HIGH_RETURN_THRESHOLD
+    if return_is_suspect:
+        st.warning(
+            f"⚠️ **High return estimate detected** — your portfolio's modelled expected return is "
+            f"**{ret_opt*100:.1f}%**, which is unusually high. This is almost certainly because "
+            f"Yahoo Finance's trailing 3-year return for one or both assets captured an exceptional "
+            f"period unlikely to repeat. A 3-year window is too short to estimate a reliable "
+            f"forward-looking expected return. **Override the return below before drawing conclusions.**"
+        )
+
+    # ── Simulation inputs ─────────────────────────────────────────────────────
     col_mc1, col_mc2, col_mc3 = st.columns(3)
     with col_mc1:
         initial_investment = st.number_input("Initial Investment ($)", min_value=1000, max_value=10000000, value=10000,
@@ -1393,10 +1406,46 @@ with mc_tab:
     with col_mc3:
         n_sims = st.selectbox("Number of Simulations", options=[500, 1000, 2500, 5000], index=1, key="mc_sims")
 
-    # Monte Carlo using stored portfolio parameters
+    # ── Optional parameter override ───────────────────────────────────────────
+    with st.expander(
+        "Override simulation parameters" + (" — recommended given high return estimate above" if return_is_suspect else ""),
+        expanded=return_is_suspect,
+    ):
+        st.markdown(
+            "The simulation defaults to your portfolio's modelled return and volatility from Yahoo Finance. "
+            "Override these if you think the historical window is unrepresentative. "
+            "Reasonable long-run nominal equity returns are typically **8–12%**; volatility **15–25%**."
+        )
+        ov_col1, ov_col2 = st.columns(2)
+        with ov_col1:
+            mu_override_pct = st.number_input(
+                "Expected annual return for simulation (%)",
+                min_value=-30.0, max_value=100.0,
+                value=round(ret_opt * 100, 2),
+                step=0.5, key="mc_mu_override",
+                help=f"Modelled value: {ret_opt*100:.2f}%. Change this to stress-test the simulation.",
+            )
+        with ov_col2:
+            sigma_override_pct = st.number_input(
+                "Annual volatility / SD for simulation (%)",
+                min_value=1.0, max_value=100.0,
+                value=round(sd_opt * 100, 2),
+                step=0.5, key="mc_sigma_override",
+                help=f"Modelled value: {sd_opt*100:.2f}%. Typical equity range: 15–25%.",
+            )
+        mu_port = mu_override_pct / 100
+        sigma_port = sigma_override_pct / 100
+        using_override = abs(mu_port - ret_opt) > 0.001 or abs(sigma_port - sd_opt) > 0.001
+        if using_override:
+            st.info(
+                f"Simulation is using your override: **μ = {mu_port*100:.2f}%**, "
+                f"**σ = {sigma_port*100:.2f}%** (modelled: {ret_opt*100:.2f}%, {sd_opt*100:.2f}%)."
+            )
+        else:
+            st.caption(f"Using modelled values: μ = {mu_port*100:.2f}%, σ = {sigma_port*100:.2f}%.")
+
+    # Monte Carlo using (possibly overridden) parameters
     np.random.seed(42)
-    mu_port = ret_opt  # annualized decimal
-    sigma_port = sd_opt  # annualized decimal
 
     # GBM: S_t = S_0 * exp((μ - 0.5*σ²)*t + σ*W_t)
     dt = 1.0
@@ -1535,4 +1584,3 @@ st.markdown("""
 <div class="disclaimer">
 This tool is for educational purposes and should not be treated as personal financial advice.
 </div>""", unsafe_allow_html=True)
-
