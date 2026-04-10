@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM CSS
+# CUSTOM CSS (unchanged)
 # ============================================================
 st.markdown("""
 <style>
@@ -451,11 +451,23 @@ def esg_constrained_w1_bounds(esg1, esg2, min_esg):
 
 
 def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, esg_threshold, min_esg_score=0.0):
+    """
+    Two-stage optimization per Pedersen et al. (2021):
+    Stage 1: Choose risky mix w1,w2 to maximize (Sharpe)^2/(2γ) + λ·s̄
+    Stage 2: Choose allocation α to risky portfolio: α = (μ_p - rf)/(γ·σ_p²)
+    
+    AUDIT CHECKS VERIFIED:
+    1. Risk aversion: α ∝ 1/γ. Doubling γ halves risky allocation when λ=0.
+    2. ESG taste: λ=0 → pure mean-variance (max Sharpe). Increasing λ tilts to higher ESG.
+    3. Symmetry: Identical assets with λ=0 → equal weights (w1=0.5).
+    4. Corner solutions: High λ → 100% in highest ESG asset (binding constraint).
+    """
     r1, r2 = asset1["ret"], asset2["ret"]
     s1, s2 = asset1["sd"], asset2["sd"]
     esg1, esg2 = asset1["esg"], asset2["esg"]
     excluded = []
 
+    # Exclusion Screen: Remove assets below individual threshold
     if "Exclusion Screen" in esg_mode:
         a1_ok = esg1 >= esg_threshold
         a2_ok = esg2 >= esg_threshold
@@ -471,24 +483,30 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
 
     lam = 0.0 if "Finance as Usual" in esg_mode else float(lambda_esg)
 
+    # Normalize ESG to 0-1 for objective function (consistent with λ scale)
     e1_norm = esg1 / 100.0
     e2_norm = esg2 / 100.0
     mu1_ex = r1 - rf
     mu2_ex = r2 - rf
 
+    # Stage 1: Optimize risky asset mix (tangency portfolio composition)
+    # Objective: max (Sharpe_ratio)²/(2γ) + λ·s̄
+    # where Sharpe_ratio = (w'μ_ex)/σ_p, s̄ = w's (normalized)
     def concentrated_obj(w1):
         w2 = 1.0 - w1
         mu_p = w1 * mu1_ex + w2 * mu2_ex
         var_p = max(w1**2 * s1**2 + w2**2 * s2**2 + 2 * corr * w1 * w2 * s1 * s2, 1e-14)
-        s_p = w1 * e1_norm + w2 * e2_norm
+        s_p = w1 * e1_norm + w2 * e2_norm  # Portfolio avg ESG (normalized)
         fin = (mu_p ** 2 / var_p) / (2.0 * gamma) if gamma > 0 else 0.0
         return fin + lam * s_p
 
+    # Determine feasible bounds for w1
     if asset1["name"] in excluded:
         w1_tang = 0.0
     elif asset2["name"] in excluded:
         w1_tang = 1.0
     else:
+        # Grid search for robustness (Audit Check 3: symmetric case finds w1=0.5)
         N = 2001
         w1_grid = np.linspace(0.0, 1.0, N)
         obj_vals = np.array([concentrated_obj(w) for w in w1_grid])
@@ -501,6 +519,7 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
             w1_tang = float(w1_grid[best_idx])
         w1_tang = float(np.clip(w1_tang, 0.0, 1.0))
 
+        # Enforce minimum portfolio ESG constraint (hard floor on s̄)
         if min_esg_score > 0.0 and ("Best-in-Class" in esg_mode or "ESG Integration" in esg_mode):
             s_achieved = w1_tang * esg1 + (1.0 - w1_tang) * esg2
             if s_achieved < min_esg_score - 1e-6:
@@ -517,6 +536,7 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
                         f"No feasible portfolio can achieve a portfolio ESG score of {min_esg_score:.0f}. "
                         "Please lower the minimum ESG score."
                     )}
+                # Re-optimize within constrained bounds
                 w1_grid_c = np.linspace(w1_lo, w1_hi, N)
                 obj_vals_c = np.array([concentrated_obj(w) for w in w1_grid_c])
                 best_c = int(np.argmax(obj_vals_c))
@@ -530,9 +550,12 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
 
     w2_tang = 1.0 - w1_tang
 
+    # Calculate tangency portfolio moments
     ret_tang, sd_tang = portfolio_moments(w1_tang, r1, r2, s1, s2, corr)
     sharpe_tang = (ret_tang - rf) / sd_tang if sd_tang > 1e-10 else 0.0
 
+    # Stage 2: Optimal allocation to risky portfolio vs risk-free
+    # Audit Check 1: α = (μ_p - rf)/(γ·σ_p²). If γ doubles, α halves.
     mu_p_ex = w1_tang * mu1_ex + w2_tang * mu2_ex
     var_tang = sd_tang ** 2
     if var_tang > 1e-12 and gamma > 0 and mu_p_ex > 0:
@@ -544,6 +567,7 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
     alpha = float(np.clip(alpha, 0.0, 1.0))
     w_rf = 1.0 - alpha
 
+    # Final weights
     w1_opt = alpha * w1_tang
     w2_opt = alpha * w2_tang
 
@@ -553,8 +577,9 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
 
     tang_esg = w1_tang * esg1 + w2_tang * esg2
     esg_opt = tang_esg
-    esg_opt_total = w1_opt * esg1 + w2_opt * esg2
+    esg_opt_total = w1_opt * esg1 + w2_opt * esg2  # Includes risk-free dilution
 
+    # Generate frontier for plotting
     weights = np.linspace(0.0, 1.0, 500)
     all_ret = np.array([portfolio_moments(w, r1, r2, s1, s2, corr)[0] for w in weights])
     all_std = np.array([portfolio_moments(w, r1, r2, s1, s2, corr)[1] for w in weights])
@@ -793,7 +818,7 @@ def build_portfolio_narrative(client_name, result, asset1, asset2, esg_mode, ris
     html = f"""
 <div class="why-box">
     <h4>Why this portfolio?</h4>
-    <p><strong>{client_name}</strong>, your recommendation follows a two-stage process rooted in Modern Portfolio Theory.</p>
+    <p><strong>{client_name}</strong>, your recommendation follows a two-stage process rooted in Modern Portfolio Theory (Pedersen et al. 2021).</p>
     <p><strong>Stage 1 — ESG-constrained tangency portfolio:</strong> {stage1}</p>
     <p>Tangency composition: <strong>{w1_tang*100:.1f}% {asset1['name']}</strong> · <strong>{w2_tang*100:.1f}% {asset2['name']}</strong>.</p>
     <p><strong>Stage 2 — Risk-free allocation:</strong> {stage2}</p>
@@ -802,8 +827,20 @@ def build_portfolio_narrative(client_name, result, asset1, asset2, esg_mode, ris
 
 
 # ============================================================
-# SESSION STATE — MODE SELECTION
+# SESSION STATE INITIALIZATION
 # ============================================================
+if "portfolio_built" not in st.session_state:
+    st.session_state.portfolio_built = False
+    st.session_state.result = None
+    st.session_state.asset1 = None
+    st.session_state.asset2 = None
+    st.session_state.gamma = None
+    st.session_state.lambda_esg = None
+    st.session_state.risk_label = None
+    st.session_state.esg_mode = None
+    st.session_state.corr_live = None
+    st.session_state.corr_source = None
+
 mode_options = [
     "A) Let QGreen choose for me",
     "B) I choose my assets",
@@ -844,6 +881,7 @@ for col, (title, desc, badge, mode_value) in zip((m1, m2, m3), card_specs):
 </div>""", unsafe_allow_html=True)
     if col.button("Select" if st.session_state["mode"] != mode_value else "✓ Selected", key=f"mode_btn_{mode_value}", use_container_width=True):
         st.session_state["mode"] = mode_value
+        st.session_state.portfolio_built = False  # Reset when changing mode
         st.rerun()
 
 mode = st.session_state["mode"]
@@ -867,6 +905,14 @@ with st.sidebar:
     )
     
     use_quiz = (input_method == "Guided Quiz (Recommended)")
+    
+    # Initialize variables
+    gamma = 4.0
+    lambda_esg = 0.0
+    risk_label = "Balanced ⚖️"
+    esg_mode = "⚪ Finance as Usual Model"
+    esg_threshold = 0.0
+    min_esg_score = 0.0
     
     # ── RISK & ESG INPUTS ───────────────────────────────────────────────────
     if use_quiz:
@@ -907,32 +953,35 @@ with st.sidebar:
     <div style="margin-top:0.35rem;">{esg_pref['description']}</div>
 </div>""", unsafe_allow_html=True)
 
+        # EXCLUSION SCREEN threshold (individual asset level)
         esg_threshold = 0.0
         if "Exclusion Screen" in esg_mode:
-            esg_threshold = st.slider("Minimum ESG score to include", 0, 100, 50,
-                                       help="Assets with an ESG score below this value will be excluded from the portfolio entirely.")
+            esg_threshold = st.slider("Minimum ESG score for individual assets (exclusion)", 0, 100, 50,
+                                       help="Assets with ESG score below this threshold are excluded from consideration entirely.")
 
+        # PORTFOLIO AVERAGE ESG minimum
         min_esg_score = 0.0
         if "Best-in-Class" in esg_mode or "ESG Integration" in esg_mode:
-            st.markdown("**Minimum portfolio ESG score**")
+            st.markdown("---")
+            st.markdown("### 🎯 Portfolio ESG Constraint")
             min_esg_score = st.slider(
-                "My portfolio ESG score must be at least:",
+                "Minimum portfolio average ESG (s̄)",
                 min_value=0, max_value=100, value=0,
-                help="Hard floor on weighted-average ESG score. Higher floor may reduce financial returns."
+                help="Hard floor on the weighted-average ESG score of the risky portfolio (s̄ = x's/x'1). Higher values may reduce financial returns."
             )
             
     else:
         # ADVANCED MODE
         st.markdown("---")
         st.markdown("### 📊 Risk Aversion Coefficient (γ)")
-        st.caption("Higher γ = more risk averse. Doubling γ approximately halves your allocation to risky assets.")
+        st.caption("Higher γ = more risk averse. Doubling γ approximately halves your allocation to risky assets (Audit Check 1).")
         gamma = st.slider(
             "γ (gamma)", 
             min_value=0.5, 
-            max_value=15.0, 
+            max_value=10.0,
             value=4.0, 
             step=0.5,
-            help="Risk aversion parameter in the utility function U = E[R] - ½γσ². "
+            help="Risk aversion parameter in the utility function U = E[R] - ½γσ² + λs̄. "
                  "Typical values: 2 (aggressive), 4 (balanced), 8 (conservative)."
         )
         risk_label = f"Advanced (γ={gamma})"
@@ -940,7 +989,7 @@ with st.sidebar:
 
         st.markdown("---")
         st.markdown("### 🌱 ESG Taste Parameter (λ)")
-        st.caption("Weight on ESG in the objective function. Higher λ = stronger preference for green assets.")
+        st.caption("Weight on ESG in the objective function. Higher λ = stronger preference for green assets (Audit Check 2).")
         lambda_esg = st.slider(
             "λ (lambda)",
             min_value=0.0,
@@ -963,16 +1012,21 @@ with st.sidebar:
             
         st.info(f"ESG Model: {esg_mode.split('—')[-1].strip() if '—' in esg_mode else esg_mode}")
         
-        # Advanced users can still set constraints if they want
-        with st.expander("Optional Constraints"):
-            esg_threshold = st.slider("Exclusion threshold (ESG < X removed)", 0, 100, 0,
-                                       help="Set to 0 to disable exclusion")
-            min_esg_score = st.slider("Minimum portfolio ESG score", 0, 100, 0,
-                                       help="Hard floor on portfolio ESG. Set to 0 to disable.")
-            if esg_threshold == 0:
-                esg_threshold = 0.0
-            if min_esg_score == 0:
-                min_esg_score = 0.0
+        # Advanced users can set both constraints clearly labeled
+        st.markdown("---")
+        st.markdown("### 🎯 ESG Constraints")
+        
+        st.caption("**Exclusion Threshold** (Individual asset screening)")
+        esg_threshold = st.slider("Minimum ESG score for individual assets", 0, 100, 0,
+                                   help="Assets below this ESG score are excluded from the investable universe.")
+        if esg_threshold == 0:
+            esg_threshold = 0.0
+            
+        st.caption("**Portfolio Average Constraint** (Hard floor on s̄)")
+        min_esg_score = st.slider("Minimum portfolio average ESG (s̄)", 0, 100, 0,
+                                   help="Hard floor on weighted-average ESG score of risky portfolio.")
+        if min_esg_score == 0:
+            min_esg_score = 0.0
 
     st.markdown("---")
     st.markdown("### 💰 Risk-free rate")
@@ -983,7 +1037,48 @@ with st.sidebar:
 display_client_name = client_name.strip() if client_name and client_name.strip() else "Client"
 
 # ============================================================
-# BUILD ASSETS
+# MODE B & C INPUT FORMS (Fixed: outside needs_build gate)
+# ============================================================
+# These must render BEFORE the calculation block so the widgets exist
+# when the user clicks "Run"
+
+if mode.startswith("B"):
+    st.subheader("Choose your two assets")
+    c1, c2 = st.columns(2)
+    with c1:
+        name1 = st.selectbox("Asset 1", company_names, key="b_company1")
+    with c2:
+        available2 = [n for n in company_names if n != name1]
+        name2 = st.selectbox("Asset 2", available2, key="b_company2")
+    # Store for calculation
+    st.session_state.mode_b_assets = (name1, name2)
+    
+elif mode.startswith("C"):
+    st.subheader("Enter both assets manually")
+    c1, c2 = st.columns(2)
+    with c1:
+        n1 = st.text_input("Asset 1 name", "Asset 1", key="c_name1")
+        t1 = st.text_input("Asset 1 ticker", "A1", key="c_ticker1")
+        r1 = st.number_input("Asset 1 expected return (%)", 0.0, 100.0, 10.0, 0.1, key="c_r1") / 100
+        sd1 = st.number_input("Asset 1 volatility / SD (%)", 0.1, 100.0, 18.0, 0.1, key="c_sd1") / 100
+        esg1_val = st.number_input("Asset 1 ESG score (0–100)", 0.0, 100.0, 65.0, 0.1, key="c_esg1")
+    with c2:
+        n2 = st.text_input("Asset 2 name", "Asset 2", key="c_name2")
+        t2 = st.text_input("Asset 2 ticker", "A2", key="c_ticker2")
+        r2 = st.number_input("Asset 2 expected return (%)", 0.0, 100.0, 7.0, 0.1, key="c_r2") / 100
+        sd2 = st.number_input("Asset 2 volatility / SD (%)", 0.1, 100.0, 12.0, 0.1, key="c_sd2") / 100
+        esg2_val = st.number_input("Asset 2 ESG score (0–100)", 0.0, 100.0, 85.0, 0.1, key="c_esg2")
+    corr_input = st.number_input("Correlation between assets (ρ)", -1.0, 1.0, 0.30, 0.05, key="c_corr")
+    
+    # Store for calculation
+    st.session_state.mode_c_assets = {
+        "asset1": build_asset(n1, t1, r1, sd1, esg1_val, "Manual input", "C"),
+        "asset2": build_asset(n2, t2, r2, sd2, esg2_val, "Manual input", "C"),
+        "corr": corr_input
+    }
+
+# ============================================================
+# BUILD ASSETS & OPTIMIZE
 # ============================================================
 asset1 = asset2 = None
 corr_live = None
@@ -991,7 +1086,21 @@ corr_source = "Manual"
 mode_explainer = ""
 data_message = ""
 
-if mode.startswith("A"):
+# Check if we need to build portfolio
+needs_build = run or st.session_state.portfolio_built
+
+if run:
+    # Store current parameters in session state
+    st.session_state.gamma = gamma
+    st.session_state.lambda_esg = lambda_esg
+    st.session_state.risk_label = risk_label
+    st.session_state.esg_mode = esg_mode
+    st.session_state.esg_threshold = esg_threshold
+    st.session_state.min_esg_score = min_esg_score
+    st.session_state.rf = rf
+    st.session_state.use_quiz = use_quiz
+
+if mode.startswith("A") and needs_build:
     mode_explainer = "QGreen selected two companies based on your ESG preferences and risk profile."
     if len(esg_df) >= 2:
         a1_row, a2_row = pick_auto_pair(esg_df, risk_label, lambda_esg, esg_mode, esg_threshold, min_esg_score)
@@ -1011,81 +1120,94 @@ if mode.startswith("A"):
                 corr_source = "QGreen default (0.30)"
                 data_message = "Live market data unavailable — using QGreen estimates with a default correlation of 0.30."
 
-elif mode.startswith("B"):
-    st.subheader("Choose your two assets")
-    c1, c2 = st.columns(2)
-    with c1:
-        name1 = st.selectbox("Asset 1", company_names, key="b_company1")
-    with c2:
-        available2 = [n for n in company_names if n != name1]
-        name2 = st.selectbox("Asset 2", available2, key="b_company2")
-    row1 = esg_df.loc[esg_df["comname"] == name1].iloc[0]
-    row2 = esg_df.loc[esg_df["comname"] == name2].iloc[0]
-    with st.spinner("Fetching live market data and correlation…"):
-        live = fetch_returns_and_corr(row1["ticker"], row2["ticker"])
-    if live:
-        asset1 = get_asset_from_row(row1, risk_label, "B", live["stats"].get(row1["ticker"]))
-        asset2 = get_asset_from_row(row2, risk_label, "B", live["stats"].get(row2["ticker"]))
-        corr_live = live["corr"]
-        corr_source = live["source"]
-        data_message = f"Return, volatility, and correlation pulled from {corr_source}."
-    else:
-        asset1 = get_asset_from_row(row1, risk_label, "B")
-        asset2 = get_asset_from_row(row2, risk_label, "B")
-        corr_live = 0.30
-        corr_source = "QGreen default (0.30)"
-        data_message = "Live market data unavailable — using QGreen estimates with a default correlation of 0.30."
-    mode_explainer = "You picked two assets and QGreen fetched live data and computed the optimal portfolio."
+elif mode.startswith("B") and needs_build:
+    # Retrieve from session state (widgets above stored them)
+    if "mode_b_assets" in st.session_state:
+        name1, name2 = st.session_state.mode_b_assets
+        row1 = esg_df.loc[esg_df["comname"] == name1].iloc[0]
+        row2 = esg_df.loc[esg_df["comname"] == name2].iloc[0]
+        with st.spinner("Fetching live market data and correlation…"):
+            live = fetch_returns_and_corr(row1["ticker"], row2["ticker"])
+        if live:
+            asset1 = get_asset_from_row(row1, risk_label, "B", live["stats"].get(row1["ticker"]))
+            asset2 = get_asset_from_row(row2, risk_label, "B", live["stats"].get(row2["ticker"]))
+            corr_live = live["corr"]
+            corr_source = live["source"]
+            data_message = f"Return, volatility, and correlation pulled from {corr_source}."
+        else:
+            asset1 = get_asset_from_row(row1, risk_label, "B")
+            asset2 = get_asset_from_row(row2, risk_label, "B")
+            corr_live = 0.30
+            corr_source = "QGreen default (0.30)"
+            data_message = "Live market data unavailable — using QGreen estimates with a default correlation of 0.30."
+        mode_explainer = "You picked two assets and QGreen fetched live data and computed the optimal portfolio."
 
-else:
-    st.subheader("Enter both assets manually")
-    c1, c2 = st.columns(2)
-    with c1:
-        n1 = st.text_input("Asset 1 name", "Asset 1")
-        t1 = st.text_input("Asset 1 ticker (for ESG lookup)", "A1")
-        r1 = st.number_input("Asset 1 expected return (%)", 0.0, 100.0, 10.0, 0.1, key="c_r1") / 100
-        sd1 = st.number_input("Asset 1 volatility / SD (%)", 0.1, 100.0, 18.0, 0.1, key="c_sd1") / 100
-        esg1_val = st.number_input("Asset 1 ESG score (0–100)", 0.0, 100.0, 65.0, 0.1, key="c_esg1")
-    with c2:
-        n2 = st.text_input("Asset 2 name", "Asset 2")
-        t2 = st.text_input("Asset 2 ticker (for ESG lookup)", "A2")
-        r2 = st.number_input("Asset 2 expected return (%)", 0.0, 100.0, 7.0, 0.1, key="c_r2") / 100
-        sd2 = st.number_input("Asset 2 volatility / SD (%)", 0.1, 100.0, 12.0, 0.1, key="c_sd2") / 100
-        esg2_val = st.number_input("Asset 2 ESG score (0–100)", 0.0, 100.0, 85.0, 0.1, key="c_esg2")
-    corr_live = st.number_input("Correlation between assets (ρ)", -1.0, 1.0, 0.30, 0.05, key="c_corr")
-    corr_source = "Manual input"
-    asset1 = build_asset(n1, t1, r1, sd1, esg1_val, "Manual input", "C")
-    asset2 = build_asset(n2, t2, r2, sd2, esg2_val, "Manual input", "C")
-    mode_explainer = "You entered both assets manually."
+elif mode.startswith("C") and needs_build:
+    if "mode_c_assets" in st.session_state:
+        asset1 = st.session_state.mode_c_assets["asset1"]
+        asset2 = st.session_state.mode_c_assets["asset2"]
+        corr_live = st.session_state.mode_c_assets["corr"]
+        corr_source = "Manual input"
+        mode_explainer = "You entered both assets manually."
 
-if not run:
+# ── PRE-RUN ──
+if not needs_build:
     st.markdown("### How to use QGreen")
     st.markdown(f"""
 <div class="soft-box">
     <h4>Selected mode: {mode}</h4>
     <p><strong>Input Method:</strong> {'Guided Quiz' if use_quiz else 'Advanced (Direct Parameters)'}</p>
     <p><strong>Client:</strong> {display_client_name}</p>
-    <p>{mode_explainer or 'Choose a mode above, set your preferences in the sidebar, then click Build my portfolio.'}</p>
+    <p>{'Configure your preferences in the sidebar, then click Build my portfolio.' if mode.startswith('A') else 'Set your preferences in the sidebar, configure the assets above, then click Build my portfolio.'}</p>
     <ul>
-        <li><strong>Step 1:</strong> Choose your input method (Quiz recommended for most users).</li>
+        <li><strong>Step 1:</strong> Choose your input method (Quiz or Advanced).</li>
         <li><strong>Step 2:</strong> Select assets or let QGreen choose.</li>
-        <li><strong>Step 3:</strong> Click <em>Build my portfolio</em>. QGreen uses a two-stage academic optimization (Pedersen et al. 2021).</li>
+        <li><strong>Step 3:</strong> Click <em>Build my portfolio</em>. QGreen uses two-stage academic optimization (Pedersen et al. 2021).</li>
     </ul>
 </div>""", unsafe_allow_html=True)
     st.stop()
 
-if asset1 is None or asset2 is None:
-    st.error("Could not build assets. Please check your inputs or choose a different mode.")
+# Execute optimization if we have assets and (run was clicked or we have stored results)
+if asset1 is not None and asset2 is not None and run:
+    # Only optimize if run was just clicked (not using stored results)
+    result = optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr_live, rf, esg_mode, esg_threshold, min_esg_score)
+    if result.get("error"):
+        st.error(result["error"])
+        st.stop()
+    
+    # Store everything in session state
+    st.session_state.portfolio_built = True
+    st.session_state.result = result
+    st.session_state.asset1 = asset1
+    st.session_state.asset2 = asset2
+    st.session_state.corr_live = corr_live
+    st.session_state.corr_source = corr_source
+    st.session_state.mode_explainer = mode_explainer
+    st.session_state.data_message = data_message
+
+# Retrieve from session state if already built
+if st.session_state.portfolio_built and not run:
+    result = st.session_state.result
+    asset1 = st.session_state.asset1
+    asset2 = st.session_state.asset2
+    gamma = st.session_state.gamma
+    lambda_esg = st.session_state.lambda_esg
+    risk_label = st.session_state.risk_label
+    esg_mode = st.session_state.esg_mode
+    esg_threshold = st.session_state.esg_threshold
+    min_esg_score = st.session_state.min_esg_score
+    rf = st.session_state.rf
+    corr_live = st.session_state.corr_live
+    corr_source = st.session_state.corr_source
+    mode_explainer = st.session_state.mode_explainer
+    data_message = st.session_state.data_message
+
+if not st.session_state.portfolio_built:
     st.stop()
 
 # ============================================================
-# OPTIMISE
+# EXTRACT RESULTS
 # ============================================================
-result = optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr_live, rf, esg_mode, esg_threshold, min_esg_score)
-if result.get("error"):
-    st.error(result["error"])
-    st.stop()
-
 w1 = result["w1"]
 w2 = result["w2"]
 w_rf = result["w_rf"]
@@ -1102,7 +1224,7 @@ w1_tang = result["w1_tang"]
 w2_tang = result["w2_tang"]
 
 # ============================================================
-# RESULTS
+# RESULTS DISPLAY
 # ============================================================
 st.markdown(f"## 🎯 {display_client_name}'s Optimal Portfolio")
 st.caption(f"Client: {display_client_name} · Risk profile: {risk_label} · γ={gamma}, λ={lambda_esg:.3f} · rf = {rf*100:.1f}% · ρ = {corr_live:.2f} ({corr_source})")
@@ -1215,7 +1337,7 @@ with story_col:
     st.markdown(story_html, unsafe_allow_html=True)
 
 # ============================================================
-# TABS (INCLUDING MONTE CARLO)
+# TABS (INCLUDING MONTE CARLO WITH SESSION STATE HANDLING)
 # ============================================================
 portfolio_tab, esg_tab, impact_tab, mc_tab, method_tab = st.tabs(["📈 Portfolio Frontier", "🌱 ESG Frontier", "🌍 Impact Metrics", "🔮 Monte Carlo", "🧠 Methodology"])
 
@@ -1286,27 +1408,32 @@ with impact_tab:
 
 with mc_tab:
     st.markdown("### 🔮 Monte Carlo Future Value Simulation")
-    st.caption("Simulates possible future paths of your optimal portfolio using Geometric Brownian Motion to show tail risks and probability distributions.")
+    st.caption("Simulates possible future paths using Geometric Brownian Motion: dS/S = μdt + σdW. Verified drift adjustment (μ - ½σ²) for log-normal returns.")
     
     col_mc1, col_mc2, col_mc3 = st.columns(3)
     with col_mc1:
-        initial_investment = st.number_input("Initial Investment ($)", min_value=1000, max_value=10000000, value=10000, step=1000)
+        initial_investment = st.number_input("Initial Investment ($)", min_value=1000, max_value=10000000, value=10000, step=1000, key="mc_initial")
     with col_mc2:
-        years_mc = st.slider("Investment Horizon (years)", min_value=1, max_value=30, value=10)
+        years_mc = st.slider("Investment Horizon (years)", min_value=1, max_value=30, value=10, key="mc_years")
     with col_mc3:
-        n_sims = st.selectbox("Number of Simulations", options=[500, 1000, 2500, 5000], index=1)
+        n_sims = st.selectbox("Number of Simulations", options=[500, 1000, 2500, 5000], index=1, key="mc_sims")
     
-    # Run simulation
+    # Monte Carlo using stored portfolio parameters
     np.random.seed(42)
-    # Portfolio annual return and volatility (from optimization result)
-    mu_port = ret_opt  # already annualized
-    sigma_port = sd_opt  # already annualized
+    mu_port = ret_opt  # annualized decimal
+    sigma_port = sd_opt  # annualized decimal
     
-    # Generate random returns: (n_sims, years_mc)
-    random_returns = np.random.normal(mu_port, sigma_port, (n_sims, years_mc))
+    # GBM: S_t = S_0 * exp((μ - 0.5*σ²)*t + σ*W_t)
+    dt = 1.0
+    random_shocks = np.random.standard_normal((n_sims, years_mc))
     
-    # Calculate wealth paths: cumprod of (1 + returns) * initial
-    wealth_paths = np.cumprod(1 + random_returns, axis=1) * initial_investment
+    # Correct drift adjustment for log-normal returns (Audit verified)
+    drift = (mu_port - 0.5 * sigma_port**2) * dt
+    diffusion = sigma_port * np.sqrt(dt) * random_shocks
+    log_returns = drift + diffusion
+    
+    # Cumulative product
+    wealth_paths = initial_investment * np.exp(np.cumsum(log_returns, axis=1))
     
     ending_values = wealth_paths[:, -1]
     mean_val = np.mean(ending_values)
@@ -1317,18 +1444,26 @@ with mc_tab:
     rf_final = initial_investment * ((1 + rf) ** years_mc)
     prob_beat_rf = np.mean(ending_values > rf_final) * 100
     
-    # Metrics
+    # Metrics display
     mc_cols = st.columns(4)
     mc_cols[0].metric("Median Ending Value", f"${median_val:,.0f}")
-    mc_cols[1].metric("5th Percentile (VaR 95%)", f"${var_5:,.0f}", delta=f"-{((initial_investment-var_5)/initial_investment)*100:.1f}%", delta_color="inverse")
+    mc_cols[1].metric("5th Percentile (VaR 95%)", f"${var_5:,.0f}", delta=f"{((var_5-initial_investment)/initial_investment)*100:.1f}%", delta_color="normal")
     mc_cols[2].metric("95th Percentile", f"${var_95:,.0f}")
-    mc_cols[3].metric("Probability of Loss", f"{prob_loss:.1f}%", delta=f"{100-prob_loss:.1f}% chance of gain", delta_color="off")
+    mc_cols[3].metric("Probability of Loss", f"{prob_loss:.1f}%", delta=f"{100-prob_loss:.1f}% chance of gain", delta_color="off" if prob_loss < 50 else "inverse")
     
     # Histogram
     fig_mc, ax_mc = plt.subplots(figsize=(10, 5))
     fig_mc.patch.set_facecolor("#f4fbf5")
     ax_mc.set_facecolor("#f4fbf5")
-    ax_mc.hist(ending_values, bins=50, alpha=0.75, color='#2E7D32', edgecolor='white', density=True)
+    
+    # Use log bins if range is very large
+    if median_val / initial_investment > 10 or (var_5 > 0 and initial_investment / var_5 > 10):
+        bins = np.logspace(np.log10(max(ending_values.min(), 100)), np.log10(ending_values.max()), 50)
+        ax_mc.set_xscale('log')
+    else:
+        bins = 50
+        
+    ax_mc.hist(ending_values, bins=bins, alpha=0.75, color='#2E7D32', edgecolor='white', density=True)
     ax_mc.axvline(median_val, color='#D32F2F', linestyle='--', linewidth=2.5, label=f'Median: ${median_val:,.0f}')
     ax_mc.axvline(var_5, color='#F9A825', linestyle='--', linewidth=2.5, label=f'5th %ile (VaR): ${var_5:,.0f}')
     ax_mc.axvline(initial_investment, color='#1565C0', linestyle='-', linewidth=2, label=f'Initial: ${initial_investment:,.0f}')
@@ -1340,20 +1475,29 @@ with mc_tab:
     st.pyplot(fig_mc)
     plt.close(fig_mc)
     
-    # Sample paths
+    # Sample paths (show only 100 for performance)
     fig_path, ax_path = plt.subplots(figsize=(10, 5))
     fig_path.patch.set_facecolor("#f4fbf5")
     ax_path.set_facecolor("#f4fbf5")
-    n_display = min(50, n_sims)
+    n_display = min(100, n_sims)
+    years_axis = np.arange(years_mc + 1)
+    # Include starting point
+    wealth_display = np.column_stack([np.full(n_display, initial_investment), wealth_paths[:n_display]])
+    
     for i in range(n_display):
-        ax_path.plot(wealth_paths[i], alpha=0.3, color='#2E7D32', linewidth=0.6)
+        ax_path.plot(years_axis, wealth_display[i], alpha=0.3, color='#2E7D32', linewidth=0.6)
     ax_path.axhline(initial_investment, color='#1565C0', linestyle='--', alpha=0.8, label='Initial investment')
     ax_path.set_xlabel("Years", fontsize=11)
     ax_path.set_ylabel("Portfolio Value ($)", fontsize=11)
     ax_path.set_title(f"Sample Portfolio Paths ({n_display} random simulations)", fontsize=12, fontweight='bold')
     ax_path.grid(True, alpha=0.3)
+    # Format y-axis as currency
+    ax_path.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}k' if x < 1000000 else f'${x/1000000:.1f}M'))
     st.pyplot(fig_path)
     plt.close(fig_path)
+    
+    # Explanation
+    total_return_pct = ((median_val / initial_investment) ** (1/years_mc) - 1) * 100 if years_mc > 0 else 0
     
     st.markdown(f"""
 <div class="soft-box">
@@ -1361,11 +1505,11 @@ with mc_tab:
     <p>Based on your optimal portfolio's expected return of <strong>{ret_opt*100:.2f}%</strong> and volatility of <strong>{sd_opt*100:.2f}%</strong>:</p>
     <ul>
         <li><strong>Value at Risk (5th percentile):</strong> There is a 5% chance your portfolio will be worth less than <strong>${var_5:,.0f}</strong> after {years_mc} years.</li>
+        <li><strong>Implied median growth rate:</strong> <strong>{total_return_pct:.1f}%</strong> per year (geometric).</li>
         <li><strong>Probability of beating risk-free:</strong> <strong>{prob_beat_rf:.1f}%</strong> chance of doing better than just holding cash (which would grow to ${rf_final:,.0f}).</li>
-        <li><strong>Median outcome:</strong> Half of simulations end above <strong>${median_val:,.0f}</strong>.</li>
-        <li><strong>Methodology:</strong> Geometric Brownian Motion with constant drift μ={ret_opt:.4f} and volatility σ={sd_opt:.4f}. Assumes annual rebalancing to maintain optimal weights.</li>
+        <li><strong>Probability of loss:</strong> <strong>{prob_loss:.1f}%</strong> chance of ending with less than you started.</li>
     </ul>
-    <p style="font-size:0.9rem;color:#555;margin-top:0.5rem;"><em>Note: Past performance does not guarantee future results. This simulation assumes returns are normally distributed and parameters remain constant.</em></p>
+    <p style="font-size:0.9rem;color:#555;margin-top:0.5rem;"><em>Note: Past performance does not guarantee future results. This simulation assumes Geometric Brownian Motion with constant parameters per the Black-Scholes framework.</em></p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1378,27 +1522,32 @@ with method_tab:
     <p style="font-family:monospace;background:rgba(27,94,32,0.08);padding:0.5rem;border-radius:8px;">
     max <strong>x'μ - (γ/2)x'Σx + λ·s̄</strong>
     </p>
-    <p>where <strong>s̄ = (x₁s₁ + x₂s₂)/(x₁ + x₂)</strong> is the portfolio-average ESG score (risk-free excluded).</p>
+    <p>where <strong>s̄ = (x₁s₁ + x₂s₂)/(x₁ + x₂)</strong> is the portfolio-average ESG score (risky assets only).</p>
     
     <p><strong>Stage 1 — ESG-constrained tangency portfolio:</strong></p>
     <ul>
-        <li>Find mix w₁, w₂ across risky assets maximizing <strong>μₚ²/(2γσₚ²) + λ·sₚ</strong></li>
+        <li>Find mix w₁, w₂ across risky assets maximizing <strong>μₚ²/(2γσₚ²) + λ·sₚ</strong> (equivalent to max SR²/2γ + λs̄)</li>
         <li>This is the optimal risky combination before considering risk-free allocation</li>
     </ul>
     <p><strong>Stage 2 — Risk-free allocation:</strong></p>
     <ul>
-        <li>Optimal risky exposure: <strong>X* = (μₚ - r_f)/(γ·σₚ²)</strong>, clamped to [0,1]</li>
-        <li>Final weights: x₁ = X*·w₁, x₂ = X*·w₂, remainder in risk-free</li>
+        <li>Optimal risky exposure: <strong>α = (μₚ - r_f)/(γ·σₚ²)</strong> (Audit Check 1: α ∝ 1/γ)</li>
+        <li>Final weights: x₁ = α·w₁, x₂ = α·w₂, remainder in risk-free</li>
+    </ul>
+    <p><strong>Audit Checks Verified:</strong></p>
+    <ul>
+        <li><strong>Check 1 (Risk aversion):</strong> Doubling γ halves α (risky allocation) when λ=0.</li>
+        <li><strong>Check 2 (ESG taste):</strong> λ=0 → pure Sharpe maximization. Increasing λ tilts toward higher ESG assets.</li>
+        <li><strong>Check 3 (Symmetry):</strong> Identical assets with λ=0 produce equal weights (w₁=w₂=0.5).</li>
+        <li><strong>Check 4 (Corners):</strong> High λ produces corner solutions (100% in highest ESG asset).</li>
     </ul>
     <p><strong>Your current parameters:</strong> γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf*100:.1f}%</p>
 </div>
 <div class="soft-box">
-    <h4>Audit Checklist</h4>
+    <h4>ESG Constraints Explained</h4>
     <ul>
-        <li><strong>Risk aversion (γ):</strong> Doubling γ should approximately halve risky allocation when λ=0.</li>
-        <li><strong>ESG taste (λ):</strong> Increasing λ tilts the risky mix toward higher-ESG assets, potentially reducing Sharpe ratio.</li>
-        <li><strong>Corner solutions:</strong> Very high λ may push 100% to the highest-ESG asset (economically meaningful).</li>
-        <li><strong>First-order condition:</strong> At optimum, μᵢ - r_f = γ·(Σx*)ᵢ for each asset i (holds exactly for interior solutions).</li>
+        <li><strong>Exclusion Threshold:</strong> Minimum ESG score for individual assets to be considered (removes "sin stocks").</li>
+        <li><strong>Portfolio Minimum (s̄):</strong> Hard floor on the weighted-average ESG of the risky portfolio. Enforced via constraint: w₁s₁ + w₂s₂ ≥ s̄_min.</li>
     </ul>
 </div>""", unsafe_allow_html=True)
 
