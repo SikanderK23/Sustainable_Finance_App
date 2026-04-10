@@ -369,16 +369,16 @@ def fetch_single_market_stats(ticker: str):
 
 
 def estimate_asset_characteristics(esg_score: float, style: str):
-    e = float(esg_score)
+    """Neutral fallback estimates used only when live market data is unavailable.
+    These estimates are intentionally independent of ESG score so the app does not
+    mechanically reward greener assets in the financial inputs.
+    """
     if style == "Conservative 🛡️":
-        ret = 0.05 + 0.00025 * e
-        sd = 0.10 + 0.00020 * (100 - e)
+        ret, sd = 0.06, 0.10
     elif style == "Balanced ⚖️":
-        ret = 0.07 + 0.00022 * e
-        sd = 0.14 + 0.00022 * (100 - e)
+        ret, sd = 0.08, 0.14
     else:
-        ret = 0.09 + 0.00018 * e
-        sd = 0.18 + 0.00025 * (100 - e)
+        ret, sd = 0.10, 0.18
     return round(ret, 4), round(sd, 4)
 
 
@@ -451,135 +451,67 @@ def esg_constrained_w1_bounds(esg1, esg2, min_esg):
 
 
 def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, esg_threshold, min_esg_score=0.0):
-    """
-    Two-stage optimization per Pedersen et al. (2021):
-    Stage 1: Choose risky mix w1,w2 to maximize (Sharpe)^2/(2γ) + λ·s̄
-    Stage 2: Choose allocation α to risky portfolio: α = (μ_p - rf)/(γ·σ_p²)
-    
-    AUDIT CHECKS VERIFIED:
-    1. Risk aversion: α ∝ 1/γ. Doubling γ halves risky allocation when λ=0.
-    2. ESG taste: λ=0 → pure mean-variance (max Sharpe). Increasing λ tilts to higher ESG.
-    3. Symmetry: Identical assets with λ=0 → equal weights (w1=0.5).
-    4. Corner solutions: High λ → 100% in highest ESG asset (binding constraint).
+    """Benchmark implementation of the lecturer's objective.
+
+    Maximise over risky-asset weights x >= 0 with no sum-to-one constraint:
+        x'(μ-r_f 1) - (γ/2) x'Σx + λ s̄
+    where s̄ = x's / x'1 is the risky-portfolio-average ESG score.
+
+    For two risky assets, write x = α w where w = (w1, 1-w1), α >= 0.
+    For any fixed risky mix w, the optimal risky scale is:
+        α* = max(0, μ_p^ex / (γ σ_p^2))
+    with no upper cap, so borrowing at the risk-free rate is allowed.
     """
     r1, r2 = asset1["ret"], asset2["ret"]
     s1, s2 = asset1["sd"], asset2["sd"]
     esg1, esg2 = asset1["esg"], asset2["esg"]
-    excluded = []
+    lam = float(lambda_esg)
+    if "Finance as Usual" in esg_mode:
+        lam = 0.0
 
-    # Exclusion Screen: Remove assets below individual threshold
-    if "Exclusion Screen" in esg_mode:
-        a1_ok = esg1 >= esg_threshold
-        a2_ok = esg2 >= esg_threshold
-        if not a1_ok:
-            excluded.append(asset1["name"])
-        if not a2_ok:
-            excluded.append(asset2["name"])
-        if not a1_ok and not a2_ok:
-            return {"error": (
-                f"Both assets have ESG scores below the exclusion threshold of {esg_threshold:.0f}. "
-                "Please lower the threshold or choose different assets."
-            )}
-
-    lam = 0.0 if "Finance as Usual" in esg_mode else float(lambda_esg)
-
-    # Normalize ESG to 0-1 for objective function (consistent with λ scale)
-    e1_norm = esg1 / 100.0
-    e2_norm = esg2 / 100.0
     mu1_ex = r1 - rf
     mu2_ex = r2 - rf
+    e1_norm = esg1 / 100.0
+    e2_norm = esg2 / 100.0
 
-    # Stage 1: Optimize risky asset mix (tangency portfolio composition)
-    # Objective: max (Sharpe_ratio)²/(2γ) + λ·s̄
-    # where Sharpe_ratio = (w'μ_ex)/σ_p, s̄ = w's (normalized)
-    def concentrated_obj(w1):
+    def risky_mix_objective(w1):
         w2 = 1.0 - w1
-        mu_p = w1 * mu1_ex + w2 * mu2_ex
+        mu_p_ex = w1 * mu1_ex + w2 * mu2_ex
         var_p = max(w1**2 * s1**2 + w2**2 * s2**2 + 2 * corr * w1 * w2 * s1 * s2, 1e-14)
-        s_p = w1 * e1_norm + w2 * e2_norm  # Portfolio avg ESG (normalized)
-        fin = (mu_p ** 2 / var_p) / (2.0 * gamma) if gamma > 0 else 0.0
-        return fin + lam * s_p
+        s_bar = w1 * e1_norm + w2 * e2_norm
+        alpha_star = max(0.0, mu_p_ex / (gamma * var_p)) if gamma > 0 else 0.0
+        return alpha_star * mu_p_ex - 0.5 * gamma * (alpha_star ** 2) * var_p + lam * s_bar
 
-    # Determine feasible bounds for w1
-    if asset1["name"] in excluded:
-        w1_tang = 0.0
-    elif asset2["name"] in excluded:
-        w1_tang = 1.0
+    N = 4001
+    w_grid = np.linspace(0.0, 1.0, N)
+    obj_vals = np.array([risky_mix_objective(w) for w in w_grid])
+    best_idx = int(np.argmax(obj_vals))
+    lo = w_grid[max(0, best_idx - 1)]
+    hi = w_grid[min(N - 1, best_idx + 1)]
+    if hi - lo > 1e-12:
+        w1_tang = float(_golden_section_min(lambda w: -risky_mix_objective(w), lo, hi))
     else:
-        # Grid search for robustness (Audit Check 3: symmetric case finds w1=0.5)
-        N = 2001
-        w1_grid = np.linspace(0.0, 1.0, N)
-        obj_vals = np.array([concentrated_obj(w) for w in w1_grid])
-        best_idx = int(np.argmax(obj_vals))
-        lo_gs = w1_grid[max(0, best_idx - 1)]
-        hi_gs = w1_grid[min(N - 1, best_idx + 1)]
-        if hi_gs - lo_gs > 1e-10:
-            w1_tang = float(_golden_section_min(lambda w: -concentrated_obj(w), lo_gs, hi_gs))
-        else:
-            w1_tang = float(w1_grid[best_idx])
-        w1_tang = float(np.clip(w1_tang, 0.0, 1.0))
-
-        # Enforce minimum portfolio ESG constraint (hard floor on s̄)
-        if min_esg_score > 0.0 and ("Best-in-Class" in esg_mode or "ESG Integration" in esg_mode):
-            s_achieved = w1_tang * esg1 + (1.0 - w1_tang) * esg2
-            if s_achieved < min_esg_score - 1e-6:
-                bounds = esg_constrained_w1_bounds(esg1, esg2, min_esg_score)
-                if bounds is None:
-                    return {"error": (
-                        f"No feasible portfolio can achieve a portfolio ESG score of {min_esg_score:.0f}. "
-                        f"The maximum achievable ESG is {max(esg1, esg2):.1f}. "
-                        "Please lower the minimum ESG score."
-                    )}
-                w1_lo, w1_hi = bounds
-                if w1_lo > w1_hi + 1e-6:
-                    return {"error": (
-                        f"No feasible portfolio can achieve a portfolio ESG score of {min_esg_score:.0f}. "
-                        "Please lower the minimum ESG score."
-                    )}
-                # Re-optimize within constrained bounds
-                w1_grid_c = np.linspace(w1_lo, w1_hi, N)
-                obj_vals_c = np.array([concentrated_obj(w) for w in w1_grid_c])
-                best_c = int(np.argmax(obj_vals_c))
-                lo_c = w1_grid_c[max(0, best_c - 1)]
-                hi_c = w1_grid_c[min(N - 1, best_c + 1)]
-                if hi_c - lo_c > 1e-10:
-                    w1_tang = float(_golden_section_min(lambda w: -concentrated_obj(w), lo_c, hi_c))
-                else:
-                    w1_tang = float(w1_grid_c[best_c])
-                w1_tang = float(np.clip(w1_tang, w1_lo, w1_hi))
-
+        w1_tang = float(w_grid[best_idx])
+    w1_tang = float(np.clip(w1_tang, 0.0, 1.0))
     w2_tang = 1.0 - w1_tang
 
-    # Calculate tangency portfolio moments
     ret_tang, sd_tang = portfolio_moments(w1_tang, r1, r2, s1, s2, corr)
-    sharpe_tang = (ret_tang - rf) / sd_tang if sd_tang > 1e-10 else 0.0
-
-    # Stage 2: Optimal allocation to risky portfolio vs risk-free
-    # Audit Check 1: α = (μ_p - rf)/(γ·σ_p²). If γ doubles, α halves.
-    mu_p_ex = w1_tang * mu1_ex + w2_tang * mu2_ex
-    var_tang = sd_tang ** 2
-    if var_tang > 1e-12 and gamma > 0 and mu_p_ex > 0:
-        alpha = mu_p_ex / (gamma * var_tang)
-    elif mu_p_ex <= 0:
-        alpha = 0.0
-    else:
-        alpha = 1.0
-    alpha = float(np.clip(alpha, 0.0, 1.0))
+    mu_p_ex = ret_tang - rf
+    var_tang = max(sd_tang ** 2, 1e-14)
+    alpha = max(0.0, mu_p_ex / (gamma * var_tang)) if gamma > 0 else 0.0
     w_rf = 1.0 - alpha
 
-    # Final weights
     w1_opt = alpha * w1_tang
     w2_opt = alpha * w2_tang
-
-    ret_opt = w_rf * rf + alpha * ret_tang
-    sd_opt = alpha * sd_tang
+    ret_opt = w_rf * rf + w1_opt * r1 + w2_opt * r2
+    sd_opt = np.sqrt(max(w1_opt**2 * s1**2 + w2_opt**2 * s2**2 + 2 * corr * w1_opt * w2_opt * s1 * s2, 0.0))
+    sharpe_tang = mu_p_ex / sd_tang if sd_tang > 1e-10 else 0.0
     sharpe_opt = (ret_opt - rf) / sd_opt if sd_opt > 1e-10 else 0.0
 
     tang_esg = w1_tang * esg1 + w2_tang * esg2
     esg_opt = tang_esg
-    esg_opt_total = w1_opt * esg1 + w2_opt * esg2  # Includes risk-free dilution
+    esg_opt_total = (w1_opt * esg1 + w2_opt * esg2) / max(alpha, 1e-12) if alpha > 1e-12 else np.nan
 
-    # Generate frontier for plotting
     weights = np.linspace(0.0, 1.0, 500)
     all_ret = np.array([portfolio_moments(w, r1, r2, s1, s2, corr)[0] for w in weights])
     all_std = np.array([portfolio_moments(w, r1, r2, s1, s2, corr)[1] for w in weights])
@@ -611,11 +543,11 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
         "all_sharpe": all_sharpe,
         "rf": rf,
         "gamma": gamma,
-        "lambda_esg": lambda_esg,
-        "excluded": excluded,
+        "lambda_esg": lam,
+        "excluded": [],
         "corr": corr,
-        "min_esg_score": min_esg_score,
-        "esg_threshold": esg_threshold,
+        "min_esg_score": 0.0,
+        "esg_threshold": 0.0,
     }
 
 
@@ -628,19 +560,19 @@ def derive_esg_preferences(answers):
     if total == 0:
         model_name = "⚪ Finance as Usual Model"
         model_short = "Finance as Usual"
-        description = "No ESG preference. The portfolio maximises the Sharpe ratio of risky assets, then splits between the risk-free asset and the tangency portfolio based on your risk aversion."
+        description = "λ = 0. The app solves the pure mean-variance benchmark with no ESG taste term."
     elif total <= 7:
-        model_name = "🚫 Sustainable Finance Model 1.0 — Exclusion Screen"
-        model_short = "Exclusion Screen"
-        description = "Assets below your minimum ESG threshold are removed before the tangency portfolio is formed. The optimal portfolio then combines that ESG-constrained tangency portfolio with the risk-free asset."
+        model_name = "🌱 Sustainable Finance Model 1.0 — Light ESG Preference"
+        model_short = "Light ESG Preference"
+        description = "A low positive λ adds a modest ESG taste term to the same benchmark optimisation problem."
     elif total <= 14:
-        model_name = "🏅 Sustainable Finance Model 2.0 — Best-in-Class"
-        model_short = "Best-in-Class"
-        description = "A small return tilt favours the stronger ESG performer when forming the tangency portfolio. The optimal portfolio then combines that tilted tangency with the risk-free asset."
+        model_name = "🌿 Sustainable Finance Model 2.0 — Moderate ESG Preference"
+        model_short = "Moderate ESG Preference"
+        description = "A medium λ places more weight on greener risky-asset mixes while still respecting the same objective function."
     else:
-        model_name = "🌍 Sustainable Finance Model 3.0 — ESG Integration"
-        model_short = "ESG Integration"
-        description = "ESG scores are added directly to effective expected returns before the tangency portfolio is formed. The optimal portfolio then combines that ESG-integrated tangency with the risk-free asset."
+        model_name = "🌍 Sustainable Finance Model 3.0 — Strong ESG Preference"
+        model_short = "Strong ESG Preference"
+        description = "A high λ can rationally push the solution toward a corner allocation in the greener asset."
     return {"total": total, "lambda": lambda_esg, "model_name": model_name, "model_short": model_short, "description": description}
 
 
@@ -766,21 +698,19 @@ def compute_impact_snapshot(asset1, asset2, w1, w2):
 
 
 def pick_auto_pair(df, style, lambda_esg, esg_mode, esg_threshold, min_esg_score=0.0):
-    work = df.copy()
-    if "Exclusion Screen" in esg_mode:
-        work = work[work["esg_0_100"] >= esg_threshold]
-    if min_esg_score > 0:
-        work = work[work["esg_0_100"] >= min_esg_score * 0.8]
+    """Stable auto-pair for demo use.
+    Chooses one lower-ESG and one higher-ESG asset so changing λ mainly moves weights,
+    rather than constantly changing the investable pair itself.
+    """
+    work = df.dropna(subset=["esg_0_100"]).sort_values("esg_0_100").reset_index(drop=True)
     if len(work) < 2:
         return None, None
-    target = 45 + 45 * lambda_esg
-    if "Finance as Usual" in esg_mode: target = 50
-    target = max(20, min(95, target))
-    work = work.assign(dist=(work["esg_0_100"] - target).abs())
-    anchor = work.sort_values(["dist", "comname"]).iloc[0]
-    pool = work[work["comname"] != anchor["comname"]]
-    if len(pool) == 0: return None, None
-    companion = pool.assign(dist2=(pool["esg_0_100"] - anchor["esg_0_100"]).abs()).sort_values("dist2", ascending=False).iloc[0]
+    low_idx = max(0, int(len(work) * 0.2))
+    high_idx = min(len(work) - 1, int(len(work) * 0.8))
+    anchor = work.iloc[low_idx]
+    companion = work.iloc[high_idx]
+    if anchor["comname"] == companion["comname"]:
+        companion = work.iloc[-1]
     return anchor, companion
 
 
@@ -953,22 +883,9 @@ with st.sidebar:
     <div style="margin-top:0.35rem;">{esg_pref['description']}</div>
 </div>""", unsafe_allow_html=True)
 
-        # EXCLUSION SCREEN threshold (individual asset level)
         esg_threshold = 0.0
-        if "Exclusion Screen" in esg_mode:
-            esg_threshold = st.slider("Minimum ESG score for individual assets (exclusion)", 0, 100, 50,
-                                       help="Assets with ESG score below this threshold are excluded from consideration entirely.")
-
-        # PORTFOLIO AVERAGE ESG minimum
         min_esg_score = 0.0
-        if "Best-in-Class" in esg_mode or "ESG Integration" in esg_mode:
-            st.markdown("---")
-            st.markdown("### 🎯 Portfolio ESG Constraint")
-            min_esg_score = st.slider(
-                "Minimum portfolio average ESG (s̄)",
-                min_value=0, max_value=100, value=0,
-                help="Hard floor on the weighted-average ESG score of the risky portfolio (s̄ = x's/x'1). Higher values may reduce financial returns."
-            )
+        st.caption("This benchmark version uses the lecturer's objective directly. ESG enters only through λ·s̄, with no extra exclusion or minimum-ESG constraints.")
             
     else:
         # ADVANCED MODE
@@ -1000,33 +917,19 @@ with st.sidebar:
                  "λ≈0.3: moderate ESG tilt. λ>0.5: strong ESG preference (may sacrifice returns)."
         )
         
-        # Map lambda to model names for compatibility
         if lambda_esg == 0:
             esg_mode = "⚪ Finance as Usual Model"
         elif lambda_esg <= 0.33:
-            esg_mode = "🚫 Sustainable Finance Model 1.0 — Exclusion Screen"
+            esg_mode = "🌱 Sustainable Finance Model 1.0 — Light ESG Preference"
         elif lambda_esg <= 0.67:
-            esg_mode = "🏅 Sustainable Finance Model 2.0 — Best-in-Class"
+            esg_mode = "🌿 Sustainable Finance Model 2.0 — Moderate ESG Preference"
         else:
-            esg_mode = "🌍 Sustainable Finance Model 3.0 — ESG Integration"
-            
+            esg_mode = "🌍 Sustainable Finance Model 3.0 — Strong ESG Preference"
+
         st.info(f"ESG Model: {esg_mode.split('—')[-1].strip() if '—' in esg_mode else esg_mode}")
-        
-        # Advanced users can set both constraints clearly labeled
-        st.markdown("---")
-        st.markdown("### 🎯 ESG Constraints")
-        
-        st.caption("**Exclusion Threshold** (Individual asset screening)")
-        esg_threshold = st.slider("Minimum ESG score for individual assets", 0, 100, 0,
-                                   help="Assets below this ESG score are excluded from the investable universe.")
-        if esg_threshold == 0:
-            esg_threshold = 0.0
-            
-        st.caption("**Portfolio Average Constraint** (Hard floor on s̄)")
-        min_esg_score = st.slider("Minimum portfolio average ESG (s̄)", 0, 100, 0,
-                                   help="Hard floor on weighted-average ESG score of risky portfolio.")
-        if min_esg_score == 0:
-            min_esg_score = 0.0
+        esg_threshold = 0.0
+        min_esg_score = 0.0
+        st.caption("Benchmark mode: no extra ESG screens or minimum-ESG constraints are applied.")
 
     st.markdown("---")
     st.markdown("### 💰 Risk-free rate")
@@ -1162,7 +1065,7 @@ if not needs_build:
     <ul>
         <li><strong>Step 1:</strong> Choose your input method (Quiz or Advanced).</li>
         <li><strong>Step 2:</strong> Select assets or let QGreen choose.</li>
-        <li><strong>Step 3:</strong> Click <em>Build my portfolio</em>. QGreen uses two-stage academic optimization (Pedersen et al. 2021).</li>
+        <li><strong>Step 3:</strong> Click <em>Build my portfolio</em>. QGreen uses the benchmark optimisation problem from the brief, solved in two stages.</li>
     </ul>
 </div>""", unsafe_allow_html=True)
     st.stop()
@@ -1259,7 +1162,7 @@ with summary_left:
     <div class="metric-card">
         <div class="metric-label">Risky Portfolio ESG</div>
         <div class="metric-value">{esg_opt:.2f} / 100</div>
-        <div class="metric-sub">Tangency portfolio · total portfolio ESG {esg_opt_total:.1f} (rf-diluted)</div>
+        <div class="metric-sub">Risky-portfolio average ESG score s̄</div>
     </div>
     <div class="metric-card">
         <div class="metric-label">Sharpe ratio</div>
@@ -1286,7 +1189,7 @@ with summary_left:
         alloc_rows["ESG Score"].append(f"{asset['esg']:.1f}")
     out = pd.DataFrame(alloc_rows)
     st.markdown("<div class='asset-table-wrap'>" + out.to_html(index=False, classes="asset-table", border=0) + "</div>", unsafe_allow_html=True)
-    st.caption("'Weight (total)' is the share of your total portfolio. 'Weight (in risky)' is the share within the tangency (risky-asset) portfolio.")
+    st.caption("'Weight (total)' reports the benchmark risky weights x. These do not need to sum to 100%; the remainder is invested in or borrowed from the risk-free asset.")
 
 with summary_right:
     labels_pie = ["Risk-Free Asset", asset1["name"], asset2["name"]]
@@ -1298,7 +1201,7 @@ with summary_right:
                                         startangle=90, wedgeprops={"edgecolor": "white", "linewidth": 2.5})
     for at in autotexts:
         at.set_color("white"); at.set_fontweight("bold")
-    ax2.set_title("Total portfolio allocation", color="#123321", fontweight="bold")
+    ax2.set_title("Total portfolio / borrowing view", color="#123321", fontweight="bold")
     st.pyplot(fig2)
     plt.close(fig2)
 
@@ -1320,12 +1223,12 @@ with alloc_col:
 <div class="rec-box">
     <h4>Optimal portfolio — {display_client_name}</h4>
     <p><strong>Tangency portfolio (risky assets):</strong> {w1_tang*100:.0f}% {asset1['name']} + {w2_tang*100:.0f}% {asset2['name']}</p>
-    <p><strong>Final allocation:</strong> {alpha*100:.0f}% in tangency portfolio + {w_rf*100:.0f}% in risk-free asset</p>
+    <p><strong>Total risky exposure:</strong> α = {alpha:.2f} · risky mix. {'Remainder held in the risk-free asset' if w_rf >= 0 else 'Negative remainder means borrowing at the risk-free rate'}.</p>
     <ul>
         <li>Expected return: <strong>{ret_opt*100:.2f}%</strong></li>
         <li>Volatility (SD): <strong>{sd_opt*100:.2f}%</strong></li>
         <li>Risky portfolio ESG: <strong>{esg_opt:.2f}/100</strong></li>
-        <li>Total portfolio ESG: <strong>{esg_opt_total:.2f}/100</strong> (rf-diluted)</li>
+        <li>Total risky exposure α: <strong>{alpha:.2f}</strong></li>
         <li>Sharpe ratio: <strong>{sharpe_opt:.2f}</strong></li>
         <li>Tangency Sharpe: <strong>{sharpe_tang:.2f}</strong></li>
         <li>Correlation (ρ): <strong>{corr_live:.3f}</strong> ({corr_source})</li>
@@ -1354,7 +1257,7 @@ with portfolio_tab:
         cml_x = np.linspace(0, max_x, 300)
         cml_y = rf * 100 + (sharpe_tang) * cml_x
         ax_pf.plot(cml_x, cml_y, color="#1b5e20", linestyle="--", lw=1.8, label="Capital Market Line")
-    ax_pf.scatter(0, rf * 100, color="#1b5e20", marker="s", s=110, zorder=5, label=f"Risk-free asset ({rf*100:.1f}%)")
+    ax_pf.scatter(0, rf * 100, color="#1b5e20", marker="s", s=110, zorder=5, label=f"Risk-free rate ({rf*100:.1f}%)")
     ax_pf.scatter(sd_tang * 100, ret_tang * 100, color="#D32F2F", marker="*", s=280, zorder=5, label=f"Tangency portfolio (Sharpe={sharpe_tang:.2f})")
     ax_pf.scatter(sd_opt * 100, ret_opt * 100, color="#43A047", marker="*", s=310, zorder=6, label=f"Your optimal portfolio (Sharpe={sharpe_opt:.2f})")
     ax_pf.scatter(asset1["sd"] * 100, asset1["ret"] * 100, color="#6A1B9A", marker="D", s=95, label=asset1["name"])
@@ -1366,7 +1269,7 @@ with portfolio_tab:
 
 with esg_tab:
     st.markdown("### ESG frontier")
-    st.caption("Trade-off between portfolio ESG score and Sharpe ratio across all two-asset combinations.")
+    st.caption("Trade-off between risky-portfolio ESG score s̄ and Sharpe ratio across all two-asset combinations.")
     fig_esg, ax_esg = plt.subplots(figsize=(9.5, 5.0))
     fig_esg.patch.set_facecolor("#f4fbf5"); ax_esg.set_facecolor("#f4fbf5")
     tang_esg = result["tang_esg"]
@@ -1527,19 +1430,19 @@ with method_tab:
     <p><strong>Stage 1 — ESG-constrained tangency portfolio:</strong></p>
     <ul>
         <li>Find mix w₁, w₂ across risky assets maximizing <strong>μₚ²/(2γσₚ²) + λ·sₚ</strong> (equivalent to max SR²/2γ + λs̄)</li>
-        <li>This is the optimal risky combination before considering risk-free allocation</li>
+        <li>This is the optimal risky composition before scaling by total risky exposure α</li>
     </ul>
     <p><strong>Stage 2 — Risk-free allocation:</strong></p>
     <ul>
         <li>Optimal risky exposure: <strong>α = (μₚ - r_f)/(γ·σₚ²)</strong> (Audit Check 1: α ∝ 1/γ)</li>
-        <li>Final weights: x₁ = α·w₁, x₂ = α·w₂, remainder in risk-free</li>
+        <li>Final risky weights are x₁ = α·w₁ and x₂ = α·w₂. The remainder 1−x'1 is invested in or borrowed from the risk-free asset.</li>
     </ul>
     <p><strong>Audit Checks Verified:</strong></p>
     <ul>
         <li><strong>Check 1 (Risk aversion):</strong> Doubling γ halves α (risky allocation) when λ=0.</li>
         <li><strong>Check 2 (ESG taste):</strong> λ=0 → pure Sharpe maximization. Increasing λ tilts toward higher ESG assets.</li>
         <li><strong>Check 3 (Symmetry):</strong> Identical assets with λ=0 produce equal weights (w₁=w₂=0.5).</li>
-        <li><strong>Check 4 (Corners):</strong> High λ produces corner solutions (100% in highest ESG asset).</li>
+        <li><strong>Check 4 (Corners):</strong> High λ can produce corner solutions in the greener risky asset.</li>
     </ul>
     <p><strong>Your current parameters:</strong> γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf*100:.1f}%</p>
 </div>
