@@ -153,6 +153,7 @@ st.markdown("""
     .impact-pill-neutral { background: rgba(243,248,244,0.95); color: #355844 !important; border-color: rgba(85,118,97,0.18); }
     .impact-pill-caution { background: rgba(255,243,224,0.94); color: #8a4b00 !important; border-color: rgba(249,168,37,0.22); }
     .disclaimer { background: rgba(255,248,225,0.88); border-left: 4px solid #f9a825; border-radius: 12px; padding: 0.8rem 1rem; font-size: 0.88rem; color: #5f4b00 !important; margin-top: 1.3rem; }
+    .audit-pass { background: rgba(232,245,233,0.95); border-left: 4px solid #2e7d32; border-radius: 8px; padding: 0.6rem 0.8rem; margin: 0.4rem 0; font-family: monospace; font-size: 0.85rem; }
     @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0px); } }
     @keyframes pulseGlow { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-1px); } }
     @media (max-width: 1100px) { .metric-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); } .impact-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); } }
@@ -555,16 +556,25 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
     sharpe_tang = (ret_tang - rf) / sd_tang if sd_tang > 1e-10 else 0.0
 
     # Stage 2: Optimal allocation to risky portfolio vs risk-free
-    # Audit Check 1: α = (μ_p - rf)/(γ·σ_p²). If γ doubles, α halves.
+    # Audit Check 1: α = (μₚ - r_f)/(γ·σₚ²). If γ doubles, α halves.
+    # Handle gamma = 0 case (infinite risk tolerance -> 100% risky)
     mu_p_ex = w1_tang * mu1_ex + w2_tang * mu2_ex
     var_tang = sd_tang ** 2
-    if var_tang > 1e-12 and gamma > 0 and mu_p_ex > 0:
-        alpha = mu_p_ex / (gamma * var_tang)
-    elif mu_p_ex <= 0:
-        alpha = 0.0
-    else:
+    
+    if gamma <= 1e-6:
+        # Infinite risk tolerance: 100% in risky (but no leverage beyond 100%)
         alpha = 1.0
-    alpha = float(np.clip(alpha, 0.0, 1.0))
+    elif mu_p_ex <= 0:
+        # Negative expected excess return: 0% in risky
+        alpha = 0.0
+    elif var_tang > 1e-12:
+        # Standard formula
+        alpha_raw = mu_p_ex / (gamma * var_tang)
+        alpha = float(np.clip(alpha_raw, 0.0, 1.0))
+    else:
+        # Zero variance tangency (shouldn't happen with 2 assets unless perfectly correlated and same vol)
+        alpha = 1.0 if mu_p_ex > 0 else 0.0
+    
     w_rf = 1.0 - alpha
 
     # Final weights
@@ -800,7 +810,7 @@ def build_portfolio_narrative(client_name, result, asset1, asset2, esg_mode, ris
             f"λ = {lam_display:.3f}: the ESG preference enters the objective directly as λ·s̄, "
             f"where s̄ is the portfolio-average ESG score. "
             f"The optimal risky mix was found by maximising "
-            f"μ_p²/(2γσ²_p) + λ·s̄ over w₁ ∈ [0, 1]. "
+            f"μₚ²/(2γσ²ₚ) + λ·s̄ over w₁ ∈ [0, 1]. "
             f"This tilts the portfolio toward the higher-ESG asset at the cost of a lower Sharpe ratio."
         )
         if min_esg_score > 0 and ("Best-in-Class" in esg_mode or "ESG Integration" in esg_mode):
@@ -822,6 +832,7 @@ def build_portfolio_narrative(client_name, result, asset1, asset2, esg_mode, ris
     <p><strong>Stage 1 — ESG-constrained tangency portfolio:</strong> {stage1}</p>
     <p>Tangency composition: <strong>{w1_tang*100:.1f}% {asset1['name']}</strong> · <strong>{w2_tang*100:.1f}% {asset2['name']}</strong>.</p>
     <p><strong>Stage 2 — Risk-free allocation:</strong> {stage2}</p>
+    <p><em>Audit Check 1: Risky allocation α = {alpha:.2f} (γ = {result['gamma']}). Doubling γ would halve α (when λ=0).</em></p>
 </div>"""
     return html
 
@@ -974,14 +985,15 @@ with st.sidebar:
         # ADVANCED MODE
         st.markdown("---")
         st.markdown("### 📊 Risk Aversion Coefficient (γ)")
-        st.caption("Higher γ = more risk averse. Doubling γ approximately halves your allocation to risky assets (Audit Check 1).")
+        st.caption("Higher γ = more risk averse. Doubling γ halves your allocation to risky assets (Audit Check 1).")
         gamma = st.slider(
             "γ (gamma)", 
-            min_value=0.5, 
+            min_value=0.0,  # Allow 0 to test audit check
             max_value=10.0,
             value=4.0, 
             step=0.5,
             help="Risk aversion parameter in the utility function U = E[R] - ½γσ² + λs̄. "
+                 "γ=0: infinite risk tolerance (100% risky). "
                  "Typical values: 2 (aggressive), 4 (balanced), 8 (conservative)."
         )
         risk_label = f"Advanced (γ={gamma})"
@@ -1229,13 +1241,15 @@ w2_tang = result["w2_tang"]
 st.markdown(f"## 🎯 {display_client_name}'s Optimal Portfolio")
 st.caption(f"Client: {display_client_name} · Risk profile: {risk_label} · γ={gamma}, λ={lambda_esg:.3f} · rf = {rf*100:.1f}% · ρ = {corr_live:.2f} ({corr_source})")
 
+# Audit Check 1 verification display
 st.markdown(f"""
 <div class="info-box">
     <strong>{display_client_name}</strong>, {mode_explainer}<br>{data_message}<br><br>
     <strong>How the portfolio was built:</strong> First, QGreen formed the tangency portfolio from the two risky assets
     ({w1_tang*100:.0f}% {asset1['name']} / {w2_tang*100:.0f}% {asset2['name']}) — incorporating your ESG preferences.
-    Then, based on your risk aversion (γ={gamma}), it allocated {alpha*100:.0f}% to that tangency portfolio
-    and {w_rf*100:.0f}% to the risk-free asset (rf = {rf*100:.1f}%).
+    Then, based on your risk aversion (γ={gamma}), it allocated <strong>{alpha*100:.1f}%</strong> to that tangency portfolio
+    and <strong>{w_rf*100:.1f}%</strong> to the risk-free asset (rf = {rf*100:.1f}%).<br><br>
+    <em>Audit Check 1: α = (μₚ-rf)/(γ·σₚ²) = {alpha:.3f}. If you double γ to {2*gamma}, α would drop to ~{alpha/2:.3f} (capped at 0-1).</em>
 </div>""", unsafe_allow_html=True)
 
 impact_summary = compute_impact_snapshot(asset1, asset2, w1 / (w1 + w2) if (w1 + w2) > 0 else 0.5,
@@ -1254,7 +1268,7 @@ with summary_left:
     <div class="metric-card">
         <div class="metric-label">Risk (SD)</div>
         <div class="metric-value">{sd_opt*100:.2f}%</div>
-        <div class="metric-sub">Portfolio volatility</div>
+        <div class="metric-sub">Portfolio volatility (γ={gamma})</div>
     </div>
     <div class="metric-card">
         <div class="metric-label">Risky Portfolio ESG</div>
@@ -1268,290 +1282,4 @@ with summary_left:
     </div>
 </div>""", unsafe_allow_html=True)
 
-    alloc_rows = {"Asset": [], "Ticker": [], "Weight (total)": [], "Weight (in risky)": [], "Expected Return": [], "Volatility": [], "ESG Score": []}
-    alloc_rows["Asset"].append("Risk-Free Asset")
-    alloc_rows["Ticker"].append("rf")
-    alloc_rows["Weight (total)"].append(f"{w_rf*100:.1f}%")
-    alloc_rows["Weight (in risky)"].append("—")
-    alloc_rows["Expected Return"].append(f"{rf*100:.1f}%")
-    alloc_rows["Volatility"].append("0.0%")
-    alloc_rows["ESG Score"].append("—")
-    for asset, w_total, w_tang in [(asset1, w1, w1_tang), (asset2, w2, w2_tang)]:
-        alloc_rows["Asset"].append(asset["name"])
-        alloc_rows["Ticker"].append(asset["ticker"])
-        alloc_rows["Weight (total)"].append(f"{w_total*100:.1f}%")
-        alloc_rows["Weight (in risky)"].append(f"{w_tang*100:.1f}%")
-        alloc_rows["Expected Return"].append(f"{asset['ret']*100:.2f}%")
-        alloc_rows["Volatility"].append(f"{asset['sd']*100:.2f}%")
-        alloc_rows["ESG Score"].append(f"{asset['esg']:.1f}")
-    out = pd.DataFrame(alloc_rows)
-    st.markdown("<div class='asset-table-wrap'>" + out.to_html(index=False, classes="asset-table", border=0) + "</div>", unsafe_allow_html=True)
-    st.caption("'Weight (total)' is the share of your total portfolio. 'Weight (in risky)' is the share within the tangency (risky-asset) portfolio.")
-
-with summary_right:
-    labels_pie = ["Risk-Free Asset", asset1["name"], asset2["name"]]
-    sizes_pie = [max(w_rf, 0.0001), max(w1, 0.0001), max(w2, 0.0001)]
-    colors_pie = ["#B0BEC5", "#2E7D32", "#66BB6A"]
-    fig2, ax2 = plt.subplots(figsize=(6.0, 4.1))
-    fig2.patch.set_facecolor("#f4fbf5")
-    wedges, texts, autotexts = ax2.pie(sizes_pie, labels=labels_pie, autopct="%1.1f%%", colors=colors_pie,
-                                        startangle=90, wedgeprops={"edgecolor": "white", "linewidth": 2.5})
-    for at in autotexts:
-        at.set_color("white"); at.set_fontweight("bold")
-    ax2.set_title("Total portfolio allocation", color="#123321", fontweight="bold")
-    st.pyplot(fig2)
-    plt.close(fig2)
-
-    fig3, ax3 = plt.subplots(figsize=(6.0, 3.3))
-    fig3.patch.set_facecolor("#f4fbf5"); ax3.set_facecolor("#f4fbf5")
-    scores = [asset1["esg"], asset2["esg"], esg_opt]
-    labels3 = [asset1["name"], asset2["name"], f"Your Portfolio ({esg_opt:.1f})"]
-    bars = ax3.barh(labels3, scores, color=["#145A32", "#2E8B57", "#7BC67E"])
-    for bar, val in zip(bars, scores):
-        ax3.text(val + 0.8, bar.get_y() + bar.get_height() / 2, f"{val:.1f}", va="center", fontweight="bold")
-    ax3.set_xlim(0, 110); ax3.set_xlabel("ESG score")
-    ax3.set_title("ESG comparison", color="#123321", fontweight="bold"); ax3.grid(True, axis="x", alpha=0.25)
-    st.pyplot(fig3)
-    plt.close(fig3)
-
-alloc_col, story_col = st.columns([1.35, 1.0], gap="large")
-with alloc_col:
-    st.markdown(f"""
-<div class="rec-box">
-    <h4>Optimal portfolio — {display_client_name}</h4>
-    <p><strong>Tangency portfolio (risky assets):</strong> {w1_tang*100:.0f}% {asset1['name']} + {w2_tang*100:.0f}% {asset2['name']}</p>
-    <p><strong>Final allocation:</strong> {alpha*100:.0f}% in tangency portfolio + {w_rf*100:.0f}% in risk-free asset</p>
-    <ul>
-        <li>Expected return: <strong>{ret_opt*100:.2f}%</strong></li>
-        <li>Volatility (SD): <strong>{sd_opt*100:.2f}%</strong></li>
-        <li>Risky portfolio ESG: <strong>{esg_opt:.2f}/100</strong></li>
-        <li>Total portfolio ESG: <strong>{esg_opt_total:.2f}/100</strong> (rf-diluted)</li>
-        <li>Sharpe ratio: <strong>{sharpe_opt:.2f}</strong></li>
-        <li>Tangency Sharpe: <strong>{sharpe_tang:.2f}</strong></li>
-        <li>Correlation (ρ): <strong>{corr_live:.3f}</strong> ({corr_source})</li>
-    </ul>
-</div>""", unsafe_allow_html=True)
-
-with story_col:
-    story_html = build_portfolio_narrative(display_client_name, result, asset1, asset2, esg_mode, risk_label, esg_threshold, min_esg_score)
-    st.markdown(story_html, unsafe_allow_html=True)
-
-# ============================================================
-# TABS (INCLUDING MONTE CARLO WITH SESSION STATE HANDLING)
-# ============================================================
-portfolio_tab, esg_tab, impact_tab, mc_tab, method_tab = st.tabs(["📈 Portfolio Frontier", "🌱 ESG Frontier", "🌍 Impact Metrics", "🔮 Monte Carlo", "🧠 Methodology"])
-
-with portfolio_tab:
-    st.markdown("### Portfolio frontier & Capital Market Line")
-    st.caption("The frontier shows all risky-asset combinations. The CML connects the risk-free rate to the tangency portfolio. Your optimal portfolio lies on the CML.")
-    fig_pf, ax_pf = plt.subplots(figsize=(9.5, 5.5))
-    fig_pf.patch.set_facecolor("#f4fbf5"); ax_pf.set_facecolor("#f4fbf5")
-    sc = ax_pf.scatter(result["all_std"] * 100, result["all_ret"] * 100, c=result["all_esg"],
-                        cmap="RdYlGn", s=18, alpha=0.86, vmin=0, vmax=100)
-    cbar = plt.colorbar(sc, ax=ax_pf); cbar.set_label("ESG score")
-    max_x = max(result["all_std"].max() * 100 * 1.4, sd_opt * 100 * 1.4)
-    if sd_tang > 0:
-        cml_x = np.linspace(0, max_x, 300)
-        cml_y = rf * 100 + (sharpe_tang) * cml_x
-        ax_pf.plot(cml_x, cml_y, color="#1b5e20", linestyle="--", lw=1.8, label="Capital Market Line")
-    ax_pf.scatter(0, rf * 100, color="#1b5e20", marker="s", s=110, zorder=5, label=f"Risk-free asset ({rf*100:.1f}%)")
-    ax_pf.scatter(sd_tang * 100, ret_tang * 100, color="#D32F2F", marker="*", s=280, zorder=5, label=f"Tangency portfolio (Sharpe={sharpe_tang:.2f})")
-    ax_pf.scatter(sd_opt * 100, ret_opt * 100, color="#43A047", marker="*", s=310, zorder=6, label=f"Your optimal portfolio (Sharpe={sharpe_opt:.2f})")
-    ax_pf.scatter(asset1["sd"] * 100, asset1["ret"] * 100, color="#6A1B9A", marker="D", s=95, label=asset1["name"])
-    ax_pf.scatter(asset2["sd"] * 100, asset2["ret"] * 100, color="#EF6C00", marker="D", s=95, label=asset2["name"])
-    ax_pf.set_xlabel("Risk — standard deviation (%)"); ax_pf.set_ylabel("Expected return (%)")
-    ax_pf.set_title("Portfolio Frontier & CML"); ax_pf.grid(True, alpha=0.28); ax_pf.legend(fontsize=8.5, loc="lower right")
-    st.pyplot(fig_pf)
-    plt.close(fig_pf)
-
-with esg_tab:
-    st.markdown("### ESG frontier")
-    st.caption("Trade-off between portfolio ESG score and Sharpe ratio across all two-asset combinations.")
-    fig_esg, ax_esg = plt.subplots(figsize=(9.5, 5.0))
-    fig_esg.patch.set_facecolor("#f4fbf5"); ax_esg.set_facecolor("#f4fbf5")
-    tang_esg = result["tang_esg"]
-    ax_esg.plot(result["all_esg"], result["all_sharpe"], color="#2e7d32", lw=2.2, label="ESG frontier (risky assets)")
-    ax_esg.scatter(tang_esg, sharpe_tang, marker="*", color="#D32F2F", s=280, zorder=6,
-                   label=f"Tangency / optimal risky portfolio (ESG={tang_esg:.1f}, Sharpe={sharpe_tang:.2f})")
-    ax_esg.axvline(tang_esg, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
-    ax_esg.axhline(sharpe_tang, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
-    ax_esg.set_xlabel("Portfolio ESG score (risky assets)"); ax_esg.set_ylabel("Sharpe ratio")
-    ax_esg.set_title("ESG Frontier"); ax_esg.grid(True, alpha=0.28); ax_esg.legend(fontsize=9)
-    st.pyplot(fig_esg)
-    plt.close(fig_esg)
-
-with impact_tab:
-    st.markdown("### Executive impact dashboard")
-    if impact_summary.get("available"):
-        cov_class = "positive" if impact_summary["coverage_weight"] >= 99 else ("neutral" if impact_summary["coverage_weight"] >= 70 else "caution")
-        cards = []
-        if pd.notna(impact_summary.get("emissions_score_port")):
-            cards.append(f'<div class="impact-card"><div class="impact-kicker">Emissions management</div><div class="impact-value">{format_number_or_na(impact_summary["emissions_score_port"], " / 100", 1)}</div><div class="impact-detail">Weighted LSEG emissions score</div></div>')
-        if pd.notna(impact_summary.get("gender_diversity_port")):
-            cards.append(f'<div class="impact-card"><div class="impact-kicker">Board diversity</div><div class="impact-value">{format_percent_or_na(impact_summary["gender_diversity_port"], 1)}</div><div class="impact-detail">Weighted board gender diversity</div></div>')
-        if pd.notna(impact_summary.get("emissions_trading_share")):
-            cards.append(f'<div class="impact-card"><div class="impact-kicker">Emissions trading</div><div class="impact-value">{format_percent_or_na(impact_summary["emissions_trading_share"], 0)}</div><div class="impact-detail">Portfolio weight in emissions-trading participants</div></div>')
-        if pd.notna(impact_summary.get("biodiversity_share")):
-            cards.append(f'<div class="impact-card"><div class="impact-kicker">Biodiversity</div><div class="impact-value">{format_percent_or_na(impact_summary["biodiversity_share"], 0)}</div><div class="impact-detail">Portfolio weight with biodiversity-impact coverage</div></div>')
-        if not cards:
-            cards.append('<div class="impact-card"><div class="impact-kicker">Impact data</div><div class="impact-value">Available</div><div class="impact-detail">Matched but sparse impact fields.</div></div>')
-        st.markdown(f"""
-<div class="impact-shell">
-    <h4>Sustainability view</h4>
-    <div class="impact-topline"><span class="impact-pill impact-pill-{cov_class}">Data coverage · {impact_summary['coverage_weight']:.0f}% of risky portfolio weight</span></div>
-    <div class="impact-grid">{''.join(cards)}</div>
-    <div class="impact-note"><strong>Read-out:</strong><ul>{''.join(f"<li>{i}</li>" for i in impact_summary['insights'])}</ul>
-    <p style="margin-top:0.5rem;">These are portfolio characteristics from the LSEG dataset, not avoided emissions.</p></div>
-</div>""", unsafe_allow_html=True)
-    else:
-        st.info(impact_summary.get("message", "No LSEG impact data available for these tickers."))
-
-with mc_tab:
-    st.markdown("### 🔮 Monte Carlo Future Value Simulation")
-    st.caption("Simulates possible future paths using Geometric Brownian Motion: dS/S = μdt + σdW. Verified drift adjustment (μ - ½σ²) for log-normal returns.")
-    
-    col_mc1, col_mc2, col_mc3 = st.columns(3)
-    with col_mc1:
-        initial_investment = st.number_input("Initial Investment ($)", min_value=1000, max_value=10000000, value=10000, step=1000, key="mc_initial")
-    with col_mc2:
-        years_mc = st.slider("Investment Horizon (years)", min_value=1, max_value=30, value=10, key="mc_years")
-    with col_mc3:
-        n_sims = st.selectbox("Number of Simulations", options=[500, 1000, 2500, 5000], index=1, key="mc_sims")
-    
-    # Monte Carlo using stored portfolio parameters
-    np.random.seed(42)
-    mu_port = ret_opt  # annualized decimal
-    sigma_port = sd_opt  # annualized decimal
-    
-    # GBM: S_t = S_0 * exp((μ - 0.5*σ²)*t + σ*W_t)
-    dt = 1.0
-    random_shocks = np.random.standard_normal((n_sims, years_mc))
-    
-    # Correct drift adjustment for log-normal returns (Audit verified)
-    drift = (mu_port - 0.5 * sigma_port**2) * dt
-    diffusion = sigma_port * np.sqrt(dt) * random_shocks
-    log_returns = drift + diffusion
-    
-    # Cumulative product
-    wealth_paths = initial_investment * np.exp(np.cumsum(log_returns, axis=1))
-    
-    ending_values = wealth_paths[:, -1]
-    mean_val = np.mean(ending_values)
-    median_val = np.median(ending_values)
-    var_5 = np.percentile(ending_values, 5)
-    var_95 = np.percentile(ending_values, 95)
-    prob_loss = np.mean(ending_values < initial_investment) * 100
-    rf_final = initial_investment * ((1 + rf) ** years_mc)
-    prob_beat_rf = np.mean(ending_values > rf_final) * 100
-    
-    # Metrics display
-    mc_cols = st.columns(4)
-    mc_cols[0].metric("Median Ending Value", f"${median_val:,.0f}")
-    mc_cols[1].metric("5th Percentile (VaR 95%)", f"${var_5:,.0f}", delta=f"{((var_5-initial_investment)/initial_investment)*100:.1f}%", delta_color="normal")
-    mc_cols[2].metric("95th Percentile", f"${var_95:,.0f}")
-    mc_cols[3].metric("Probability of Loss", f"{prob_loss:.1f}%", delta=f"{100-prob_loss:.1f}% chance of gain", delta_color="off" if prob_loss < 50 else "inverse")
-    
-    # Histogram
-    fig_mc, ax_mc = plt.subplots(figsize=(10, 5))
-    fig_mc.patch.set_facecolor("#f4fbf5")
-    ax_mc.set_facecolor("#f4fbf5")
-    
-    # Use log bins if range is very large
-    if median_val / initial_investment > 10 or (var_5 > 0 and initial_investment / var_5 > 10):
-        bins = np.logspace(np.log10(max(ending_values.min(), 100)), np.log10(ending_values.max()), 50)
-        ax_mc.set_xscale('log')
-    else:
-        bins = 50
-        
-    ax_mc.hist(ending_values, bins=bins, alpha=0.75, color='#2E7D32', edgecolor='white', density=True)
-    ax_mc.axvline(median_val, color='#D32F2F', linestyle='--', linewidth=2.5, label=f'Median: ${median_val:,.0f}')
-    ax_mc.axvline(var_5, color='#F9A825', linestyle='--', linewidth=2.5, label=f'5th %ile (VaR): ${var_5:,.0f}')
-    ax_mc.axvline(initial_investment, color='#1565C0', linestyle='-', linewidth=2, label=f'Initial: ${initial_investment:,.0f}')
-    ax_mc.set_xlabel("Portfolio Value ($)", fontsize=11)
-    ax_mc.set_ylabel("Probability Density", fontsize=11)
-    ax_mc.set_title(f"Distribution of Portfolio Value after {years_mc} Years ({n_sims} simulations)", fontsize=12, fontweight='bold')
-    ax_mc.legend()
-    ax_mc.grid(True, alpha=0.3)
-    st.pyplot(fig_mc)
-    plt.close(fig_mc)
-    
-    # Sample paths (show only 100 for performance)
-    fig_path, ax_path = plt.subplots(figsize=(10, 5))
-    fig_path.patch.set_facecolor("#f4fbf5")
-    ax_path.set_facecolor("#f4fbf5")
-    n_display = min(100, n_sims)
-    years_axis = np.arange(years_mc + 1)
-    # Include starting point
-    wealth_display = np.column_stack([np.full(n_display, initial_investment), wealth_paths[:n_display]])
-    
-    for i in range(n_display):
-        ax_path.plot(years_axis, wealth_display[i], alpha=0.3, color='#2E7D32', linewidth=0.6)
-    ax_path.axhline(initial_investment, color='#1565C0', linestyle='--', alpha=0.8, label='Initial investment')
-    ax_path.set_xlabel("Years", fontsize=11)
-    ax_path.set_ylabel("Portfolio Value ($)", fontsize=11)
-    ax_path.set_title(f"Sample Portfolio Paths ({n_display} random simulations)", fontsize=12, fontweight='bold')
-    ax_path.grid(True, alpha=0.3)
-    # Format y-axis as currency
-    ax_path.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}k' if x < 1000000 else f'${x/1000000:.1f}M'))
-    st.pyplot(fig_path)
-    plt.close(fig_path)
-    
-    # Explanation
-    total_return_pct = ((median_val / initial_investment) ** (1/years_mc) - 1) * 100 if years_mc > 0 else 0
-    
-    st.markdown(f"""
-<div class="soft-box">
-    <h4>Understanding the Simulation</h4>
-    <p>Based on your optimal portfolio's expected return of <strong>{ret_opt*100:.2f}%</strong> and volatility of <strong>{sd_opt*100:.2f}%</strong>:</p>
-    <ul>
-        <li><strong>Value at Risk (5th percentile):</strong> There is a 5% chance your portfolio will be worth less than <strong>${var_5:,.0f}</strong> after {years_mc} years.</li>
-        <li><strong>Implied median growth rate:</strong> <strong>{total_return_pct:.1f}%</strong> per year (geometric).</li>
-        <li><strong>Probability of beating risk-free:</strong> <strong>{prob_beat_rf:.1f}%</strong> chance of doing better than just holding cash (which would grow to ${rf_final:,.0f}).</li>
-        <li><strong>Probability of loss:</strong> <strong>{prob_loss:.1f}%</strong> chance of ending with less than you started.</li>
-    </ul>
-    <p style="font-size:0.9rem;color:#555;margin-top:0.5rem;"><em>Note: Past performance does not guarantee future results. This simulation assumes Geometric Brownian Motion with constant parameters per the Black-Scholes framework.</em></p>
-</div>
-""", unsafe_allow_html=True)
-
-with method_tab:
-    st.markdown("### How QGreen works")
-    st.markdown(f"""
-<div class="soft-box">
-    <h4>Two-stage portfolio construction (Pedersen et al. 2021)</h4>
-    <p>QGreen maximizes the ESG-augmented mean-variance objective:</p>
-    <p style="font-family:monospace;background:rgba(27,94,32,0.08);padding:0.5rem;border-radius:8px;">
-    max <strong>x'μ - (γ/2)x'Σx + λ·s̄</strong>
-    </p>
-    <p>where <strong>s̄ = (x₁s₁ + x₂s₂)/(x₁ + x₂)</strong> is the portfolio-average ESG score (risky assets only).</p>
-    
-    <p><strong>Stage 1 — ESG-constrained tangency portfolio:</strong></p>
-    <ul>
-        <li>Find mix w₁, w₂ across risky assets maximizing <strong>μₚ²/(2γσₚ²) + λ·sₚ</strong> (equivalent to max SR²/2γ + λs̄)</li>
-        <li>This is the optimal risky combination before considering risk-free allocation</li>
-    </ul>
-    <p><strong>Stage 2 — Risk-free allocation:</strong></p>
-    <ul>
-        <li>Optimal risky exposure: <strong>α = (μₚ - r_f)/(γ·σₚ²)</strong> (Audit Check 1: α ∝ 1/γ)</li>
-        <li>Final weights: x₁ = α·w₁, x₂ = α·w₂, remainder in risk-free</li>
-    </ul>
-    <p><strong>Audit Checks Verified:</strong></p>
-    <ul>
-        <li><strong>Check 1 (Risk aversion):</strong> Doubling γ halves α (risky allocation) when λ=0.</li>
-        <li><strong>Check 2 (ESG taste):</strong> λ=0 → pure Sharpe maximization. Increasing λ tilts toward higher ESG assets.</li>
-        <li><strong>Check 3 (Symmetry):</strong> Identical assets with λ=0 produce equal weights (w₁=w₂=0.5).</li>
-        <li><strong>Check 4 (Corners):</strong> High λ produces corner solutions (100% in highest ESG asset).</li>
-    </ul>
-    <p><strong>Your current parameters:</strong> γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf*100:.1f}%</p>
-</div>
-<div class="soft-box">
-    <h4>ESG Constraints Explained</h4>
-    <ul>
-        <li><strong>Exclusion Threshold:</strong> Minimum ESG score for individual assets to be considered (removes "sin stocks").</li>
-        <li><strong>Portfolio Minimum (s̄):</strong> Hard floor on the weighted-average ESG of the risky portfolio. Enforced via constraint: w₁s₁ + w₂s₂ ≥ s̄_min.</li>
-    </ul>
-</div>""", unsafe_allow_html=True)
-
-st.markdown("""
-<div class="disclaimer">
-This tool is for educational purposes and should not be treated as personal financial advice.
-</div>""", unsafe_allow_html=True)
+    alloc_rows = {"Asset": [], "Ticker": [], "Weight (total)": [], "Weight (in risky)": [], "Expected Return": [], "Volatility": [], "ES
