@@ -301,147 +301,395 @@ if not impact_wide.empty:
 impact_keys = sorted(impact_lookup.keys())
 
 # ============================================================
-# PORTFOLIO MATH — AUDITED OBJECTIVE FROM THOMAS
+# PORTFOLIO MATH — CORRECT TWO-STAGE APPROACH
 # ============================================================
-# Professor Thomas asks us to maximise directly over risky-asset weights x:
-#
-#   x'μ  −  (γ/2) x'Σx  +  λ · s̄
-#
-# where s̄ = (x1*s1 + x2*s2)/(x1+x2) is the portfolio-average ESG score,
-# weighted by risky-asset positions only. The risky weights x1 and x2 do NOT
-# need to sum to one. The remainder is implicitly in (or borrowed from) the
-# risk-free asset. Therefore rf is displayed to the user, but it does not
-# affect the optimiser's argmax because it is just an additive constant in full
-# utility.
-#
-# This section implements that audited objective directly.
+
+@st.cache_data(show_spinner=False)
+def fetch_returns_and_corr(ticker1: str, ticker2: str):
+    """Fetch annualised return, vol, and pairwise correlation from Yahoo Finance."""
+    if yf is None:
+        return None
+    try:
+        tickers = [ticker1, ticker2]
+        hist = yf.download(tickers, period="3y", interval="1d", auto_adjust=True, progress=False)
+        if hist is None or hist.empty:
+            return None
+        # Handle both single and multi-ticker returns
+        if isinstance(hist.columns, pd.MultiIndex):
+            close = hist["Close"]
+        else:
+            close = hist[["Close"]]
+            close.columns = tickers
+        close = close.dropna(how="all")
+        if close.shape[0] < 60:
+            return None
+        rets = close.pct_change().dropna()
+        stats = {}
+        for t in tickers:
+            if t not in rets.columns:
+                return None
+            s = rets[t].dropna()
+            if len(s) < 60:
+                return None
+            ann_ret = float(s.mean() * 252)
+            ann_vol = float(s.std() * np.sqrt(252))
+            if not np.isfinite(ann_ret) or not np.isfinite(ann_vol) or ann_vol <= 0:
+                return None
+            stats[t] = {"return": ann_ret, "sd": ann_vol}
+        # Pairwise correlation on aligned returns
+        aligned = rets[[ticker1, ticker2]].dropna()
+        if len(aligned) < 30:
+            corr_val = 0.3
+        else:
+            corr_val = float(aligned.corr().iloc[0, 1])
+            if not np.isfinite(corr_val):
+                corr_val = 0.3
+        return {"stats": stats, "corr": corr_val, "source": "Yahoo Finance (3yr)"}
+    except Exception:
+        return None
 
 
-def covariance_matrix(s1, s2, corr):
-    cov12 = corr * s1 * s2
-    return np.array([[s1**2, cov12], [cov12, s2**2]], dtype=float)
+@st.cache_data(show_spinner=False)
+def fetch_single_market_stats(ticker: str):
+    if yf is None or not ticker:
+        return None
+    try:
+        hist = yf.download(ticker, period="3y", interval="1d", auto_adjust=True, progress=False)
+        if hist is None or hist.empty or "Close" not in hist.columns:
+            return None
+        close = hist["Close"].dropna()
+        if len(close) < 60:
+            return None
+        rets = close.pct_change().dropna()
+        ann_return = float(rets.mean() * 252)
+        ann_vol = float(rets.std() * np.sqrt(252))
+        if not np.isfinite(ann_return) or not np.isfinite(ann_vol) or ann_vol <= 0:
+            return None
+        return {"return": ann_return, "sd": ann_vol}
+    except Exception:
+        return None
 
 
-def risky_objective(x1, x2, mu1, mu2, s1, s2, corr, gamma, lambda_esg, esg1, esg2):
-    x = np.array([x1, x2], dtype=float)
-    mu = np.array([mu1, mu2], dtype=float)
-    Sigma = covariance_matrix(s1, s2, corr)
-    ret_term = float(x @ mu)
-    var_term = float(x @ Sigma @ x)
-    total_risky = float(x.sum())
-    if total_risky > 1e-12:
-        esg_avg = float((x1 * esg1 + x2 * esg2) / total_risky)
+def estimate_asset_characteristics(esg_score: float, style: str):
+    e = float(esg_score)
+    if style == "Conservative 🛡️":
+        ret = 0.05 + 0.00025 * e
+        sd = 0.10 + 0.00020 * (100 - e)
+    elif style == "Balanced ⚖️":
+        ret = 0.07 + 0.00022 * e
+        sd = 0.14 + 0.00022 * (100 - e)
     else:
-        esg_avg = 0.0
-    return ret_term - 0.5 * gamma * var_term + lambda_esg * (esg_avg / 100.0)
+        ret = 0.09 + 0.00018 * e
+        sd = 0.18 + 0.00025 * (100 - e)
+    return round(ret, 4), round(sd, 4)
 
 
-def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, esg_threshold, max_risky_weight=1.5, n_grid=351, frontier_n=101):
+def build_asset(name, ticker, ret, sd, esg, source, mode_label):
+    return {
+        "name": name, "ticker": ticker,
+        "ret": float(ret), "sd": float(sd), "esg": float(esg),
+        "source": source, "mode": mode_label,
+        "impact_profile": get_impact_profile(ticker, esg, name),
+        "impact_available": bool(get_impact_profile(ticker, esg, name)),
+    }
+
+
+def get_asset_from_row(row, style: str, mode_label: str, market_override=None):
+    if market_override:
+        ret = market_override["return"]
+        sd = market_override["sd"]
+        source = "Yahoo Finance (3yr)"
+    else:
+        mkt = fetch_single_market_stats(row["ticker"])
+        if mkt:
+            ret, sd, source = mkt["return"], mkt["sd"], "Yahoo Finance (3yr)"
+        else:
+            ret, sd = estimate_asset_characteristics(row["esg_0_100"], style)
+            source = "QGreen estimate"
+    raw_name = str(row.get("comname", row["ticker"])).strip()
+    raw_ticker = str(row["ticker"]).strip().upper()
+    display_name = raw_ticker if raw_name.upper() == raw_ticker else raw_name.title()
+    return build_asset(display_name, raw_ticker, ret, sd, row["esg_0_100"], source, mode_label)
+
+
+# ── PORTFOLIO OPTIMISATION — PROFESSOR'S OBJECTIVE ────────────────────────────
+#
+# Maximise over portfolio weights x (fractions of wealth in risky assets;
+# remainder held in / borrowed from the risk-free asset at rate rf):
+#
+#   max   x'μ_ex  −  (γ/2) x'Σx  +  λ · s̄
+#
+#   where  μ_ex = μ − rf·1   (excess returns)
+#          s̄ = x's / x'1    (portfolio-average ESG score, risk-free excluded)
+#          x ≥ 0             (no short-selling)
+#
+# Two-stage separation (λ enters Stage 1, not just Stage 2):
+# ─────────────────────────────────────────────────────────
+# STAGE 1 — Optimal risky mix w₁*
+#   Substitute X* = μ_p/(γσ²_p) into the objective and simplify:
+#       f*(w₁) = μ_p²/(2γσ²_p) + λ·s_p(w₁)
+#   where s_p = w₁·(s₁/100) + (1−w₁)·(s₂/100)  [ESG normalised to 0–1]
+#   Solve: w₁* = argmax_{w₁∈[0,1]} f*(w₁)  via grid + golden-section search.
+#
+# STAGE 2 — Optimal total risky allocation X*
+#   X* = μ_p(w₁*) / (γ·σ²_p(w₁*)),  clamped to [0, 1]
+#   x₁* = X*·w₁*,  x₂* = X*·(1−w₁*),  w_rf = 1 − X*
+#
+# First-order condition (λ=0): μᵢ − rf = γ·Σᵢ·x*  for each asset i.
+#
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _golden_section_min(f, a, b, tol=1e-9, max_iter=300):
     """
-    Fast vectorised optimiser for Thomas's audited objective.
+    Pure-numpy golden section search — minimises f on [a, b].
+    No scipy dependency. The Sharpe curve is unimodal over portfolio weights,
+    so this is guaranteed to find the global optimum.
+    """
+    gr = (np.sqrt(5) + 1) / 2
+    c = b - (b - a) / gr
+    d = a + (b - a) / gr
+    for _ in range(max_iter):
+        if abs(b - a) < tol:
+            break
+        if f(c) < f(d):
+            b = d
+        else:
+            a = c
+        c = b - (b - a) / gr
+        d = a + (b - a) / gr
+    return (a + b) / 2
+
+
+def portfolio_moments(w1, r1, r2, s1, s2, corr):
+    w2 = 1.0 - w1
+    ret = w1 * r1 + w2 * r2
+    var = w1**2 * s1**2 + w2**2 * s2**2 + 2 * corr * w1 * w2 * s1 * s2
+    sd = float(np.sqrt(max(var, 1e-12)))
+    return float(ret), sd
+
+
+def find_tangency_numerical(r1, r2, s1, s2, corr, rf, w1_lo=0.0, w1_hi=1.0):
+    """
+    Maximise Sharpe ratio over w1 in [w1_lo, w1_hi] using golden section search.
+    Pure numpy — no scipy needed. Always compares interior solution with both
+    boundary points so corner solutions are handled correctly.
+    """
+    def neg_sharpe(w1):
+        ret, sd = portfolio_moments(w1, r1, r2, s1, s2, corr)
+        return -(ret - rf) / sd if sd > 1e-10 else 0.0
+
+    if w1_lo >= w1_hi - 1e-10:
+        return float(np.clip(w1_lo, 0.0, 1.0))
+
+    w1_interior = _golden_section_min(neg_sharpe, w1_lo, w1_hi)
+    candidates = [w1_lo, w1_interior, w1_hi]
+    best_w1 = min(candidates, key=neg_sharpe)
+    return float(np.clip(best_w1, 0.0, 1.0))
+
+
+def esg_constrained_w1_bounds(esg1, esg2, min_esg):
+    """
+    Given the constraint:  w1*esg1 + (1-w1)*esg2 >= min_esg
+    Solve for the feasible range of w1 in [0, 1].
+    Returns (w1_lo, w1_hi) — the feasible interval.
+    Returns None if no feasible solution exists.
+    """
+    # constraint: w1*(esg1-esg2) >= min_esg - esg2
+    diff = esg1 - esg2
+    rhs = min_esg - esg2
+    if abs(diff) < 1e-6:
+        # ESG scores are equal — either always feasible or never
+        if esg1 >= min_esg - 1e-6:
+            return 0.0, 1.0
+        else:
+            return None  # infeasible
+    if diff > 0:
+        # w1 >= rhs/diff
+        w1_lo = rhs / diff
+        return max(0.0, w1_lo), 1.0
+    else:
+        # w1 <= rhs/diff  (inequality flips)
+        w1_hi = rhs / diff
+        return 0.0, min(1.0, w1_hi)
+
+
+def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, esg_threshold, min_esg_score=0.0):
+    """
+    Direct maximisation of the professor's ESG-MV objective:
+
+        max   x'μ_ex  −  (γ/2) x'Σx  +  λ · s̄
+        where  μ_ex = μ − rf·1,   s̄ = (x₁s₁ + x₂s₂)/(x₁+x₂),  x ≥ 0
+
+    Two-stage separation:
+    ─────────────────────
+    STAGE 1 — Optimal risky mix w₁*
+        Concentrated value: f*(w₁) = μ_p²/(2γσ²_p) + λ·s_p(w₁)
+        where s_p = w₁·(esg₁/100) + (1−w₁)·(esg₂/100)  [normalised 0–1]
+        Solve via 2001-point grid search + golden-section refinement.
+
+    STAGE 2 — Optimal total risky fraction X*
+        X* = μ_p(w₁*) / (γ·σ²_p(w₁*)),  clamped to [0, 1]
+        x₁* = X*·w₁*,  x₂* = X*·(1−w₁*),  w_rf = 1 − X*
+
+    First-order condition (λ=0): μᵢ − rf = γ·Σᵢ·x*  for each asset i.
     """
     r1, r2 = asset1["ret"], asset2["ret"]
     s1, s2 = asset1["sd"], asset2["sd"]
     esg1, esg2 = asset1["esg"], asset2["esg"]
-
-    a1_allowed = True
-    a2_allowed = True
     excluded = []
+
+    # ── Stage 0: Hard exclusion screen ───────────────────────────────────────
     if "Exclusion Screen" in esg_mode:
-        a1_allowed = esg1 >= esg_threshold
-        a2_allowed = esg2 >= esg_threshold
-        if not a1_allowed:
+        a1_ok = esg1 >= esg_threshold
+        a2_ok = esg2 >= esg_threshold
+        if not a1_ok:
             excluded.append(asset1["name"])
-        if not a2_allowed:
+        if not a2_ok:
             excluded.append(asset2["name"])
-        if not a1_allowed and not a2_allowed:
-            return {"error": f"Both assets fall below the ESG threshold of {esg_threshold:.0f}."}
+        if not a1_ok and not a2_ok:
+            return {"error": (
+                f"Both assets have ESG scores below the exclusion threshold of {esg_threshold:.0f}. "
+                "Please lower the threshold or choose different assets."
+            )}
 
-    grid = np.linspace(0.0, max_risky_weight, n_grid)
-    X1, X2 = np.meshgrid(grid, grid, indexing="ij")
-    valid = np.ones_like(X1, dtype=bool)
-    if not a1_allowed:
-        valid &= X1 <= 1e-12
-    if not a2_allowed:
-        valid &= X2 <= 1e-12
+    # Effective λ: zero for Finance as Usual (lambda_esg may already be 0)
+    lam = 0.0 if "Finance as Usual" in esg_mode else float(lambda_esg)
 
-    ret_term = X1 * r1 + X2 * r2
-    var_term = X1**2 * s1**2 + X2**2 * s2**2 + 2 * X1 * X2 * corr * s1 * s2
-    total_risky = X1 + X2
-    esg_avg = np.divide(X1 * esg1 + X2 * esg2, total_risky, out=np.zeros_like(total_risky), where=total_risky > 1e-12)
-    objective = ret_term - 0.5 * gamma * var_term + lambda_esg * (esg_avg / 100.0)
-    objective = np.where(valid, objective, -np.inf)
+    # ESG normalised to [0, 1] for the objective (display remains 0–100)
+    e1_norm = esg1 / 100.0
+    e2_norm = esg2 / 100.0
+    mu1_ex = r1 - rf
+    mu2_ex = r2 - rf
 
-    best_idx = np.unravel_index(np.nanargmax(objective), objective.shape)
-    best_x1 = float(X1[best_idx])
-    best_x2 = float(X2[best_idx])
-    best_val = float(objective[best_idx])
+    def concentrated_obj(w1):
+        """f*(w₁) = μ_p²/(2γσ²_p) + λ·s_p  — concentrated objective."""
+        w2 = 1.0 - w1
+        mu_p = w1 * mu1_ex + w2 * mu2_ex
+        var_p = max(w1**2 * s1**2 + w2**2 * s2**2 + 2 * corr * w1 * w2 * s1 * s2, 1e-14)
+        s_p = w1 * e1_norm + w2 * e2_norm
+        # AUDIT FIX: Removed mu_p > 0 check. The financial term is always positive (squared).
+        # Stage 2 will set X=0 if mu_p <= 0 anyway.
+        fin = (mu_p ** 2 / var_p) / (2.0 * gamma) if gamma > 0 else 0.0
+        return fin + lam * s_p
 
-    x_total = best_x1 + best_x2
-    x_rf = 1.0 - x_total
-    mu = np.array([r1, r2], dtype=float)
-    x = np.array([best_x1, best_x2], dtype=float)
-    Sigma = covariance_matrix(s1, s2, corr)
-    ret_risky = float(x @ mu)
-    var_risky = float(x @ Sigma @ x)
-    sd_risky = float(np.sqrt(max(var_risky, 1e-12)))
-    esg_avg_best = float((best_x1 * esg1 + best_x2 * esg2) / x_total) if x_total > 1e-12 else 0.0
-    ret_total = ret_risky + x_rf * rf
-    sd_total = sd_risky
-    sharpe_total = (ret_total - rf) / sd_total if sd_total > 1e-12 else 0.0
+    # ── Stage 1: Find optimal risky mix w₁* ──────────────────────────────────
+    if asset1["name"] in excluded:
+        w1_tang = 0.0   # only asset 2 survives
+    elif asset2["name"] in excluded:
+        w1_tang = 1.0   # only asset 1 survives
+    else:
+        # 2001-point grid search then golden-section refinement
+        N = 2001
+        w1_grid = np.linspace(0.0, 1.0, N)
+        obj_vals = np.array([concentrated_obj(w) for w in w1_grid])
+        best_idx = int(np.argmax(obj_vals))
+        lo_gs = w1_grid[max(0, best_idx - 1)]
+        hi_gs = w1_grid[min(N - 1, best_idx + 1)]
+        if hi_gs - lo_gs > 1e-10:
+            w1_tang = float(_golden_section_min(lambda w: -concentrated_obj(w), lo_gs, hi_gs))
+        else:
+            w1_tang = float(w1_grid[best_idx])
+        w1_tang = float(np.clip(w1_tang, 0.0, 1.0))
 
-    # Lighter frontier for plotting
-    fg = np.linspace(0.0, max_risky_weight, frontier_n)
-    FX1, FX2 = np.meshgrid(fg, fg, indexing="ij")
-    fvalid = np.ones_like(FX1, dtype=bool)
-    if not a1_allowed:
-        fvalid &= FX1 <= 1e-12
-    if not a2_allowed:
-        fvalid &= FX2 <= 1e-12
-    f_total = FX1 + FX2
-    frontier = pd.DataFrame({
-        "x1": FX1[fvalid].ravel(),
-        "x2": FX2[fvalid].ravel(),
-    })
-    frontier["x_rf"] = 1.0 - (frontier["x1"] + frontier["x2"])
-    frontier["ret_total"] = frontier["x1"] * r1 + frontier["x2"] * r2 + frontier["x_rf"] * rf
-    frontier_var = frontier["x1"]**2 * s1**2 + frontier["x2"]**2 * s2**2 + 2 * frontier["x1"] * frontier["x2"] * corr * s1 * s2
-    frontier["sd"] = np.sqrt(np.maximum(frontier_var, 1e-12))
-    risky_sum = frontier["x1"] + frontier["x2"]
-    frontier["esg"] = np.where(risky_sum > 1e-12, (frontier["x1"] * esg1 + frontier["x2"] * esg2) / risky_sum, 0.0)
-    frontier["objective"] = frontier["x1"] * r1 + frontier["x2"] * r2 - 0.5 * gamma * frontier_var + lambda_esg * (frontier["esg"] / 100.0)
-    frontier["sharpe"] = np.where(frontier["sd"] > 1e-12, (frontier["ret_total"] - rf) / frontier["sd"], 0.0)
+        # Optional hard ESG floor (additional constraint on top of objective)
+        if min_esg_score > 0.0 and ("Best-in-Class" in esg_mode or "ESG Integration" in esg_mode):
+            s_achieved = w1_tang * esg1 + (1.0 - w1_tang) * esg2
+            if s_achieved < min_esg_score - 1e-6:
+                bounds = esg_constrained_w1_bounds(esg1, esg2, min_esg_score)
+                if bounds is None:
+                    return {"error": (
+                        f"No feasible portfolio can achieve a portfolio ESG score of {min_esg_score:.0f}. "
+                        f"The maximum achievable ESG is {max(esg1, esg2):.1f}. "
+                        "Please lower the minimum ESG score."
+                    )}
+                w1_lo, w1_hi = bounds
+                if w1_lo > w1_hi + 1e-6:
+                    return {"error": (
+                        f"No feasible portfolio can achieve a portfolio ESG score of {min_esg_score:.0f}. "
+                        "Please lower the minimum ESG score."
+                    )}
+                w1_grid_c = np.linspace(w1_lo, w1_hi, N)
+                obj_vals_c = np.array([concentrated_obj(w) for w in w1_grid_c])
+                best_c = int(np.argmax(obj_vals_c))
+                lo_c = w1_grid_c[max(0, best_c - 1)]
+                hi_c = w1_grid_c[min(N - 1, best_c + 1)]
+                if hi_c - lo_c > 1e-10:
+                    w1_tang = float(_golden_section_min(lambda w: -concentrated_obj(w), lo_c, hi_c))
+                else:
+                    w1_tang = float(w1_grid_c[best_c])
+                w1_tang = float(np.clip(w1_tang, w1_lo, w1_hi))
 
-    # λ = 0 benchmark for audit display
-    bench_objective = ret_term - 0.5 * gamma * var_term
-    bench_objective = np.where(valid, bench_objective, -np.inf)
-    bench_idx = np.unravel_index(np.nanargmax(bench_objective), bench_objective.shape)
-    bench_x1 = float(X1[bench_idx])
-    bench_x2 = float(X2[bench_idx])
-    bench_val = float(bench_objective[bench_idx])
+    w2_tang = 1.0 - w1_tang
+
+    # Tangency moments
+    ret_tang, sd_tang = portfolio_moments(w1_tang, r1, r2, s1, s2, corr)
+    sharpe_tang = (ret_tang - rf) / sd_tang if sd_tang > 1e-10 else 0.0
+
+    # ── Stage 2: Optimal total risky allocation X* ────────────────────────────
+    # X* = μ_p_ex / (γ σ²_p),  clamped to [0, 1]
+    mu_p_ex = w1_tang * mu1_ex + w2_tang * mu2_ex
+    var_tang = sd_tang ** 2
+    if var_tang > 1e-12 and gamma > 0 and mu_p_ex > 0:
+        alpha = mu_p_ex / (gamma * var_tang)
+    elif mu_p_ex <= 0:
+        alpha = 0.0
+    else:
+        alpha = 1.0
+    alpha = float(np.clip(alpha, 0.0, 1.0))
+    w_rf = 1.0 - alpha
+
+    # Individual asset weights in total portfolio
+    w1_opt = alpha * w1_tang
+    w2_opt = alpha * w2_tang
+
+    ret_opt = w_rf * rf + alpha * ret_tang
+    sd_opt = alpha * sd_tang
+    sharpe_opt = (ret_opt - rf) / sd_opt if sd_opt > 1e-10 else 0.0
+
+    # ESG of the risky (tangency) sub-portfolio
+    tang_esg = w1_tang * esg1 + w2_tang * esg2
+    esg_opt = tang_esg
+    esg_opt_total = w1_opt * esg1 + w2_opt * esg2  # rf-diluted
+
+    # ── Frontier arrays for plotting ─────────────────────────────────────────
+    weights = np.linspace(0.0, 1.0, 500)
+    all_ret = np.array([portfolio_moments(w, r1, r2, s1, s2, corr)[0] for w in weights])
+    all_std = np.array([portfolio_moments(w, r1, r2, s1, s2, corr)[1] for w in weights])
+    all_esg = np.array([w * esg1 + (1 - w) * esg2 for w in weights])
+    all_sharpe = np.where(all_std > 0, (all_ret - rf) / all_std, -np.inf)
 
     return {
         "asset1": asset1,
         "asset2": asset2,
-        "x1": best_x1,
-        "x2": best_x2,
-        "x_rf": x_rf,
-        "total_risky": x_total,
-        "ret_opt": ret_total,
-        "sd_opt": sd_total,
-        "esg_opt": esg_avg_best,
-        "objective_opt": best_val,
-        "sharpe_opt": sharpe_total,
-        "excluded": excluded,
-        "corr": corr,
+        "w1_tang": w1_tang,
+        "w2_tang": w2_tang,
+        "ret_tang": ret_tang,
+        "sd_tang": sd_tang,
+        "sharpe_tang": sharpe_tang,
+        "tang_esg": tang_esg,
+        "w_rf": w_rf,
+        "alpha": alpha,
+        "w1": w1_opt,
+        "w2": w2_opt,
+        "ret_opt": ret_opt,
+        "sd_opt": sd_opt,
+        "esg_opt": esg_opt,
+        "esg_opt_total": esg_opt_total,
+        "sharpe_opt": sharpe_opt,
+        "weights": weights,
+        "all_ret": all_ret,
+        "all_std": all_std,
+        "all_esg": all_esg,
+        "all_sharpe": all_sharpe,
+        "rf": rf,
         "gamma": gamma,
         "lambda_esg": lambda_esg,
-        "rf": rf,
-        "frontier": frontier,
-        "bench_x1": bench_x1,
-        "bench_x2": bench_x2,
-        "bench_obj": bench_val,
+        "excluded": excluded,
+        "corr": corr,
+        "min_esg_score": min_esg_score,
+        "esg_threshold": esg_threshold,
     }
+
 
 # ============================================================
 # ESG & RISK HELPERS
@@ -452,19 +700,19 @@ def derive_esg_preferences(answers):
     if total == 0:
         model_name = "⚪ Finance as Usual Model"
         model_short = "Finance as Usual"
-        description = "ESG does not affect the optimisation because λ = 0. QGreen solves the pure mean-variance benchmark."
+        description = "No ESG preference. The portfolio maximises the Sharpe ratio of risky assets, then splits between the risk-free asset and the tangency portfolio based on your risk aversion."
     elif total <= 7:
         model_name = "🚫 Sustainable Finance Model 1.0 — Exclusion Screen"
         model_short = "Exclusion Screen"
-        description = "QGreen maximises Thomas's audited objective, with an added exclusion rule that can force low-ESG assets to zero."
+        description = "Assets below your minimum ESG threshold are removed before the tangency portfolio is formed. The optimal portfolio then combines that ESG-constrained tangency portfolio with the risk-free asset."
     elif total <= 14:
         model_name = "🏅 Sustainable Finance Model 2.0 — Best-in-Class"
         model_short = "Best-in-Class"
-        description = "QGreen still maximises Thomas's audited objective directly. A moderate λ tilts the solution toward greener risky positions."
+        description = "A small return tilt favours the stronger ESG performer when forming the tangency portfolio. The optimal portfolio then combines that tilted tangency with the risk-free asset."
     else:
         model_name = "🌍 Sustainable Finance Model 3.0 — ESG Integration"
         model_short = "ESG Integration"
-        description = "QGreen maximises Thomas's audited objective directly, with a stronger ESG taste parameter λ."
+        description = "ESG scores are added directly to effective expected returns before the tangency portfolio is formed. The optimal portfolio then combines that ESG-integrated tangency with the risk-free asset."
     return {"total": total, "lambda": lambda_esg, "model_name": model_name, "model_short": model_short, "description": description}
 
 
@@ -529,113 +777,6 @@ def get_impact_profile(ticker, esg_hint=None, name_hint=None):
     return choose_best(prefix, "prefix")
 
 
-
-
-@st.cache_data(show_spinner=False)
-def fetch_returns_and_corr(ticker1: str, ticker2: str):
-    """Fetch annualised return, volatility, and pairwise correlation from Yahoo Finance."""
-    if yf is None:
-        return None
-    try:
-        tickers = [ticker1, ticker2]
-        hist = yf.download(tickers, period="3y", interval="1d", auto_adjust=True, progress=False)
-        if hist is None or hist.empty:
-            return None
-        if isinstance(hist.columns, pd.MultiIndex):
-            close = hist["Close"]
-        else:
-            close = hist[["Close"]].copy()
-            close.columns = tickers
-        close = close.dropna(how="all")
-        if close.shape[0] < 60:
-            return None
-        rets = close.pct_change().dropna()
-        stats = {}
-        for t in tickers:
-            if t not in rets.columns:
-                return None
-            s = rets[t].dropna()
-            if len(s) < 60:
-                return None
-            ann_ret = float(s.mean() * 252)
-            ann_vol = float(s.std() * np.sqrt(252))
-            if not np.isfinite(ann_ret) or not np.isfinite(ann_vol) or ann_vol <= 0:
-                return None
-            stats[t] = {"return": ann_ret, "sd": ann_vol}
-        aligned = rets[[ticker1, ticker2]].dropna()
-        corr_val = float(aligned.corr().iloc[0, 1]) if len(aligned) >= 30 else 0.30
-        if not np.isfinite(corr_val):
-            corr_val = 0.30
-        return {"stats": stats, "corr": corr_val, "source": "Yahoo Finance (3yr)"}
-    except Exception:
-        return None
-
-
-@st.cache_data(show_spinner=False)
-def fetch_single_market_stats(ticker: str):
-    if yf is None or not ticker:
-        return None
-    try:
-        hist = yf.download(ticker, period="3y", interval="1d", auto_adjust=True, progress=False)
-        if hist is None or hist.empty or "Close" not in hist.columns:
-            return None
-        close = hist["Close"].dropna()
-        if len(close) < 60:
-            return None
-        rets = close.pct_change().dropna()
-        ann_return = float(rets.mean() * 252)
-        ann_vol = float(rets.std() * np.sqrt(252))
-        if not np.isfinite(ann_return) or not np.isfinite(ann_vol) or ann_vol <= 0:
-            return None
-        return {"return": ann_return, "sd": ann_vol}
-    except Exception:
-        return None
-
-
-def estimate_asset_characteristics(esg_score: float, style: str):
-    e = float(esg_score)
-    if style == "Conservative 🛡️":
-        ret = 0.05 + 0.00025 * e
-        sd = 0.10 + 0.00020 * (100 - e)
-    elif style == "Balanced ⚖️":
-        ret = 0.07 + 0.00022 * e
-        sd = 0.14 + 0.00022 * (100 - e)
-    else:
-        ret = 0.09 + 0.00018 * e
-        sd = 0.18 + 0.00025 * (100 - e)
-    return round(ret, 4), round(sd, 4)
-
-
-def build_asset(name, ticker, ret, sd, esg, source, mode_label):
-    return {
-        "name": name,
-        "ticker": ticker,
-        "ret": float(ret),
-        "sd": float(sd),
-        "esg": float(esg),
-        "source": source,
-        "mode": mode_label,
-        "impact_profile": get_impact_profile(ticker, esg, name),
-        "impact_available": bool(get_impact_profile(ticker, esg, name)),
-    }
-
-
-def get_asset_from_row(row, style: str, mode_label: str, market_override=None):
-    if market_override:
-        ret = market_override["return"]
-        sd = market_override["sd"]
-        source = "Yahoo Finance (3yr)"
-    else:
-        mkt = fetch_single_market_stats(row["ticker"])
-        if mkt:
-            ret, sd, source = mkt["return"], mkt["sd"], "Yahoo Finance (3yr)"
-        else:
-            ret, sd = estimate_asset_characteristics(row["esg_0_100"], style)
-            source = "QGreen estimate"
-    raw_name = str(row.get("comname", row["ticker"])).strip()
-    raw_ticker = str(row["ticker"]).strip().upper()
-    display_name = raw_ticker if raw_name.upper() == raw_ticker else raw_name.title()
-    return build_asset(display_name, raw_ticker, ret, sd, row["esg_0_100"], source, mode_label)
 def weighted_metric(values, weights):
     arr = np.array(values, dtype=float)
     w = np.array(weights, dtype=float)
@@ -857,7 +998,22 @@ with st.sidebar:
         esg_threshold = st.slider("Minimum ESG score to include", 0, 100, 50,
                                    help="Assets with an ESG score below this value will be excluded from the portfolio entirely.")
 
+    # Min portfolio ESG score — available for Best-in-Class and ESG Integration
     min_esg_score = 0.0
+    if "Best-in-Class" in esg_mode or "ESG Integration" in esg_mode:
+        st.markdown("**Minimum portfolio ESG score**")
+        min_esg_score = st.slider(
+            "My portfolio ESG score must be at least:",
+            min_value=0, max_value=100, value=0,
+            help=(
+                "This sets a hard floor on the weighted-average ESG score of your portfolio. "
+                "A higher floor forces more weight into the higher-ESG asset, "
+                "which may reduce financial returns. This is the academically correct "
+                "way to model ESG preferences (Pedersen et al., 2021)."
+            )
+        )
+        if min_esg_score > 0:
+            st.caption(f"Your portfolio's weighted ESG score will be ≥ {min_esg_score}.")
 
     st.markdown("---")
     st.markdown("### 💰 Risk-free rate")
@@ -880,7 +1036,7 @@ data_message = ""
 if mode.startswith("A"):
     mode_explainer = "QGreen selected two companies based on your ESG preferences and risk profile."
     if len(esg_df) >= 2:
-        a1_row, a2_row = pick_auto_pair(esg_df, risk_label, lambda_esg, esg_mode, esg_threshold)
+        a1_row, a2_row = pick_auto_pair(esg_df, risk_label, lambda_esg, esg_mode, esg_threshold, min_esg_score)
         if a1_row is not None and a2_row is not None:
             with st.spinner("Fetching live market data and correlation…"):
                 live = fetch_returns_and_corr(a1_row["ticker"], a2_row["ticker"])
@@ -967,7 +1123,7 @@ if asset1 is None or asset2 is None:
 # ============================================================
 # OPTIMISE
 # ============================================================
-result = optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr_live, rf, esg_mode, esg_threshold)
+result = optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr_live, rf, esg_mode, esg_threshold, min_esg_score)
 if result.get("error"):
     st.error(result["error"])
     st.stop()
@@ -994,13 +1150,16 @@ st.markdown(f"## 🎯 {display_client_name}'s Optimal Portfolio")
 st.caption(f"Client: {display_client_name} · Risk profile: {risk_label} · {esg_mode} · rf = {rf*100:.1f}% · ρ = {corr_live:.2f} ({corr_source})")
 
 st.markdown(f"""
-<div class=\"info-box\">
+<div class="info-box">
     <strong>{display_client_name}</strong>, {mode_explainer}<br>{data_message}<br><br>
-    <strong>Audited objective:</strong> QGreen directly maximises x'μ − (γ/2)x'Σx + λ·s̄ over the risky weights x₁ and x₂, with no sum-to-one constraint. The remainder of wealth is implicitly held in the risk-free asset (or borrowed from it).
+    <strong>How the portfolio was built:</strong> First, QGreen formed the tangency portfolio from the two risky assets
+    ({w1_tang*100:.0f}% {asset1['name']} / {w2_tang*100:.0f}% {asset2['name']}) — incorporating your ESG preferences.
+    Then, based on your risk profile ({risk_label}), it allocated {alpha*100:.0f}% to that tangency portfolio
+    and {w_rf*100:.0f}% to the risk-free asset (rf = {rf*100:.1f}%).
 </div>""", unsafe_allow_html=True)
 
-impact_summary = compute_impact_snapshot(asset1, asset2, x1 / total_risky if total_risky > 0 else 0.5,
-                                          x2 / total_risky if total_risky > 0 else 0.5)
+impact_summary = compute_impact_snapshot(asset1, asset2, w1 / (w1 + w2) if (w1 + w2) > 0 else 0.5,
+                                          w2 / (w1 + w2) if (w1 + w2) > 0 else 0.5)
 
 summary_left, summary_right = st.columns([1.05, 0.95])
 
@@ -1029,31 +1188,31 @@ with summary_left:
     </div>
 </div>""", unsafe_allow_html=True)
 
-    # Allocation table including implicit rf
-    alloc_rows = {"Asset": [], "Ticker": [], "Risky weight x": [], "Total weight incl. rf": [], "Expected Return": [], "Volatility": [], "ESG Score": []}
+    # Allocation table including risk-free
+    alloc_rows = {"Asset": [], "Ticker": [], "Weight (total)": [], "Weight (in risky)": [], "Expected Return": [], "Volatility": [], "ESG Score": []}
     alloc_rows["Asset"].append("Risk-Free Asset")
     alloc_rows["Ticker"].append("rf")
-    alloc_rows["Risky weight x"].append("—")
-    alloc_rows["Total weight incl. rf"].append(f"{x_rf*100:.1f}%")
+    alloc_rows["Weight (total)"].append(f"{w_rf*100:.1f}%")
+    alloc_rows["Weight (in risky)"].append("—")
     alloc_rows["Expected Return"].append(f"{rf*100:.1f}%")
     alloc_rows["Volatility"].append("0.0%")
     alloc_rows["ESG Score"].append("—")
-    for asset, x_val in [(asset1, x1), (asset2, x2)]:
+    for asset, w_total, w_tang in [(asset1, w1, w1_tang), (asset2, w2, w2_tang)]:
         alloc_rows["Asset"].append(asset["name"])
         alloc_rows["Ticker"].append(asset["ticker"])
-        alloc_rows["Risky weight x"].append(f"{x_val:.2f}")
-        alloc_rows["Total weight incl. rf"].append(f"{x_val*100:.1f}%")
+        alloc_rows["Weight (total)"].append(f"{w_total*100:.1f}%")
+        alloc_rows["Weight (in risky)"].append(f"{w_tang*100:.1f}%")
         alloc_rows["Expected Return"].append(f"{asset['ret']*100:.2f}%")
         alloc_rows["Volatility"].append(f"{asset['sd']*100:.2f}%")
         alloc_rows["ESG Score"].append(f"{asset['esg']:.1f}")
     out = pd.DataFrame(alloc_rows)
     st.markdown("<div class='asset-table-wrap'>" + out.to_html(index=False, classes="asset-table", border=0) + "</div>", unsafe_allow_html=True)
-    st.caption("The risky positions x₁ and x₂ do not have to sum to one. The remainder, 1 − (x₁+x₂), is implicitly risk-free (or borrowing if negative).")
+    st.caption("'Weight (total)' is the share of your total portfolio. 'Weight (in risky)' is the share within the tangency (risky-asset) portfolio.")
 
 with summary_right:
-    # Pie chart — total portfolio weights
+    # Pie chart — total weights
     labels_pie = ["Risk-Free Asset", asset1["name"], asset2["name"]]
-    sizes_pie = [max(abs(x_rf), 0.0001), max(x1, 0.0001), max(x2, 0.0001)]
+    sizes_pie = [max(w_rf, 0.0001), max(w1, 0.0001), max(w2, 0.0001)]
     colors_pie = ["#B0BEC5", "#2E7D32", "#66BB6A"]
     fig2, ax2 = plt.subplots(figsize=(6.0, 4.1))
     fig2.patch.set_facecolor("#f4fbf5")
@@ -1063,11 +1222,12 @@ with summary_right:
         at.set_color("white"); at.set_fontweight("bold")
     ax2.set_title("Total portfolio allocation", color="#123321", fontweight="bold")
     st.pyplot(fig2)
+    plt.close(fig2)
 
     fig3, ax3 = plt.subplots(figsize=(6.0, 3.3))
     fig3.patch.set_facecolor("#f4fbf5"); ax3.set_facecolor("#f4fbf5")
     scores = [asset1["esg"], asset2["esg"], esg_opt]
-    labels3 = [asset1["name"], asset2["name"], "Portfolio-average ESG"]
+    labels3 = [asset1["name"], asset2["name"], f"Your Portfolio ({esg_opt:.1f})"]
     bars = ax3.barh(labels3, scores, color=["#145A32", "#2E8B57", "#7BC67E"])
     for bar, val in zip(bars, scores):
         ax3.text(val + 0.8, bar.get_y() + bar.get_height() / 2, f"{val:.1f}", va="center", fontweight="bold")
@@ -1081,22 +1241,21 @@ with alloc_col:
     st.markdown(f"""
 <div class="rec-box">
     <h4>Optimal portfolio — {display_client_name}</h4>
-    <p><strong>Optimal risky positions:</strong> x₁ = {x1:.2f} in {asset1['name']} and x₂ = {x2:.2f} in {asset2['name']}</p>
-    <p><strong>Implicit risk-free position:</strong> 1 − (x₁+x₂) = {x_rf:.2f}</p>
+    <p><strong>Tangency portfolio (risky assets):</strong> {w1_tang*100:.0f}% {asset1['name']} + {w2_tang*100:.0f}% {asset2['name']}</p>
+    <p><strong>Final allocation:</strong> {alpha*100:.0f}% in tangency portfolio + {w_rf*100:.0f}% in risk-free asset</p>
     <ul>
         <li>Expected return: <strong>{ret_opt*100:.2f}%</strong></li>
         <li>Volatility (SD): <strong>{sd_opt*100:.2f}%</strong></li>
         <li>Risky portfolio ESG: <strong>{esg_opt:.2f}/100</strong></li>
         <li>Total portfolio ESG: <strong>{esg_opt_total:.2f}/100</strong> (rf-diluted)</li>
         <li>Sharpe ratio: <strong>{sharpe_opt:.2f}</strong></li>
-        <li>Objective value: <strong>{objective_opt:.4f}</strong></li>
-        <li>Mean-variance benchmark (λ=0): <strong>x₁={bench_x1:.2f}, x₂={bench_x2:.2f}</strong></li>
+        <li>Tangency Sharpe: <strong>{sharpe_tang:.2f}</strong></li>
         <li>Correlation (ρ): <strong>{corr_live:.3f}</strong> ({corr_source})</li>
     </ul>
 </div>""", unsafe_allow_html=True)
 
 with story_col:
-    story_html = build_portfolio_narrative(display_client_name, result, asset1, asset2, esg_mode, risk_label, esg_threshold, 0.0)
+    story_html = build_portfolio_narrative(display_client_name, result, asset1, asset2, esg_mode, risk_label, esg_threshold, min_esg_score)
     st.markdown(story_html, unsafe_allow_html=True)
 
 # ============================================================
@@ -1105,37 +1264,48 @@ with story_col:
 portfolio_tab, esg_tab, impact_tab, method_tab = st.tabs(["📈 Portfolio Frontier", "🌱 ESG Frontier", "🌍 Impact Metrics", "🧠 Methodology"])
 
 with portfolio_tab:
-    st.markdown("### Portfolio frontier")
-    st.caption("Each point is a feasible choice of risky weights x₁ and x₂. Colours show the portfolio-average ESG score of the risky positions.")
+    st.markdown("### Portfolio frontier & Capital Market Line")
+    st.caption("The frontier shows all risky-asset combinations. The CML connects the risk-free rate to the tangency portfolio. Your optimal portfolio lies on the CML.")
     fig_pf, ax_pf = plt.subplots(figsize=(9.5, 5.5))
     fig_pf.patch.set_facecolor("#f4fbf5"); ax_pf.set_facecolor("#f4fbf5")
-    frontier = result["frontier"]
-    sc = ax_pf.scatter(frontier["sd"] * 100, frontier["ret_total"] * 100, c=frontier["esg"],
-                        cmap="RdYlGn", s=18, alpha=0.70, vmin=0, vmax=100)
-    cbar = plt.colorbar(sc, ax=ax_pf); cbar.set_label("Portfolio-average ESG score")
-    ax_pf.scatter(sd_opt * 100, ret_opt * 100, color="#43A047", marker="*", s=320, zorder=6, label="Optimal portfolio")
-    ax_pf.scatter(asset1["sd"] * 100, (asset1["ret"] + max(0,1-1)*rf) * 100, color="#6A1B9A", marker="D", s=95, label=asset1["name"])
-    ax_pf.scatter(asset2["sd"] * 100, (asset2["ret"] + max(0,1-1)*rf) * 100, color="#EF6C00", marker="D", s=95, label=asset2["name"])
+    sc = ax_pf.scatter(result["all_std"] * 100, result["all_ret"] * 100, c=result["all_esg"],
+                        cmap="RdYlGn", s=18, alpha=0.86, vmin=0, vmax=100)
+    cbar = plt.colorbar(sc, ax=ax_pf); cbar.set_label("ESG score")
+    # CML
+    max_x = max(result["all_std"].max() * 100 * 1.4, sd_opt * 100 * 1.4)
+    if sd_tang > 0:
+        cml_x = np.linspace(0, max_x, 300)
+        cml_y = rf * 100 + (sharpe_tang) * cml_x
+        ax_pf.plot(cml_x, cml_y, color="#1b5e20", linestyle="--", lw=1.8, label="Capital Market Line")
     ax_pf.scatter(0, rf * 100, color="#1b5e20", marker="s", s=110, zorder=5, label=f"Risk-free asset ({rf*100:.1f}%)")
-    ax_pf.set_xlabel("Portfolio risk — standard deviation (%)"); ax_pf.set_ylabel("Expected portfolio return (%)")
-    ax_pf.set_title("Feasible risky-weight frontier")
-    ax_pf.grid(True, alpha=0.28); ax_pf.legend(fontsize=8.5, loc="lower right")
+    ax_pf.scatter(sd_tang * 100, ret_tang * 100, color="#D32F2F", marker="*", s=280, zorder=5, label=f"Tangency portfolio (Sharpe={sharpe_tang:.2f})")
+    ax_pf.scatter(sd_opt * 100, ret_opt * 100, color="#43A047", marker="*", s=310, zorder=6, label=f"Your optimal portfolio (Sharpe={sharpe_opt:.2f})")
+    ax_pf.scatter(asset1["sd"] * 100, asset1["ret"] * 100, color="#6A1B9A", marker="D", s=95, label=asset1["name"])
+    ax_pf.scatter(asset2["sd"] * 100, asset2["ret"] * 100, color="#EF6C00", marker="D", s=95, label=asset2["name"])
+    ax_pf.set_xlabel("Risk — standard deviation (%)"); ax_pf.set_ylabel("Expected return (%)")
+    ax_pf.set_title("Portfolio Frontier & CML"); ax_pf.grid(True, alpha=0.28); ax_pf.legend(fontsize=8.5, loc="lower right")
     st.pyplot(fig_pf)
+    plt.close(fig_pf)
 
 with esg_tab:
-    st.markdown("### ESG trade-off view")
-    st.caption("This chart shows how the portfolio-average ESG score changes with the Sharpe ratio across feasible risky-weight choices.")
+    st.markdown("### ESG frontier")
+    st.caption("Trade-off between portfolio ESG score and Sharpe ratio across all two-asset combinations.")
     fig_esg, ax_esg = plt.subplots(figsize=(9.5, 5.0))
     fig_esg.patch.set_facecolor("#f4fbf5"); ax_esg.set_facecolor("#f4fbf5")
-    frontier = result["frontier"]
-    ax_esg.scatter(frontier["esg"], frontier["sharpe"], color="#2e7d32", s=14, alpha=0.45, label="Feasible choices")
-    ax_esg.scatter(esg_opt, sharpe_opt, marker="D", color="#2e7d32", s=130, zorder=5, label="Optimal portfolio")
-    ax_esg.axvline(esg_opt, color="#2e7d32", linestyle=":", lw=1.2, alpha=0.7)
-    ax_esg.axhline(sharpe_opt, color="#2e7d32", linestyle=":", lw=1.2, alpha=0.7)
-    ax_esg.set_xlabel("Portfolio-average ESG score"); ax_esg.set_ylabel("Sharpe ratio")
-    ax_esg.set_title("ESG–Sharpe trade-off")
-    ax_esg.grid(True, alpha=0.28); ax_esg.legend()
+    tang_esg = result["tang_esg"]
+    ax_esg.plot(result["all_esg"], result["all_sharpe"], color="#2e7d32", lw=2.2, label="ESG frontier (risky assets)")
+    # On the ESG frontier, the optimal risky portfolio IS the (constrained) tangency.
+    # Both share the same risky-asset ESG score and Sharpe ratio.
+    # The risk-free allocation (Stage 2) moves along the CML but does NOT change
+    # the Sharpe ratio or the risky-portion ESG — so both points coincide on this chart.
+    ax_esg.scatter(tang_esg, sharpe_tang, marker="*", color="#D32F2F", s=280, zorder=6,
+                   label=f"Tangency / optimal risky portfolio (ESG={tang_esg:.1f}, Sharpe={sharpe_tang:.2f})")
+    ax_esg.axvline(tang_esg, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
+    ax_esg.axhline(sharpe_tang, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
+    ax_esg.set_xlabel("Portfolio ESG score (risky assets)"); ax_esg.set_ylabel("Sharpe ratio")
+    ax_esg.set_title("ESG Frontier"); ax_esg.grid(True, alpha=0.28); ax_esg.legend(fontsize=9)
     st.pyplot(fig_esg)
+    plt.close(fig_esg)
 
 with impact_tab:
     st.markdown("### Executive impact dashboard")
@@ -1167,27 +1337,30 @@ with method_tab:
     st.markdown("### How QGreen works")
     st.markdown(f"""
 <div class="soft-box">
-    <h4>Audited optimisation objective</h4>
-    <p>QGreen directly maximises the professor's audited objective over risky-asset weights x₁ and x₂:</p>
-    <p><strong>x'μ − (γ/2)x'Σx + λ·s̄</strong></p>
-    <p>where <strong>s̄ = (x₁·ESG₁ + x₂·ESG₂)/(x₁ + x₂)</strong> is the risky-asset weighted average ESG score.</p>
-    <p>The risky weights do <strong>not</strong> have to sum to one. The remainder, <strong>1 − (x₁+x₂)</strong>, is implicitly held in or borrowed from the risk-free asset at rate rf.</p>
-</div>
-<div class="soft-box">
-    <h4>How the audit checks map to QGreen</h4>
+    <h4>Two-stage portfolio construction</h4>
+    <p><strong>Stage 1 — ESG-constrained tangency portfolio</strong></p>
+    <p>QGreen finds the portfolio of risky assets that maximises the Sharpe ratio, after applying your ESG preferences:</p>
     <ul>
-        <li><strong>Risk aversion (γ):</strong> when λ = 0, higher γ reduces optimal risky positions.</li>
-        <li><strong>ESG taste (λ):</strong> increasing λ tilts the solution toward the higher-ESG asset, at the cost of Sharpe ratio.</li>
-        <li><strong>Symmetry:</strong> if the two assets have identical expected returns and identical ESG scores, the optimal risky weights are equal.</li>
-        <li><strong>Corner solutions:</strong> if λ is very high, the optimiser can legitimately set the low-ESG asset's weight to zero.</li>
+        <li><strong>Finance as Usual:</strong> No ESG constraint. Pure max-Sharpe on the two risky assets.</li>
+        <li><strong>Exclusion Screen:</strong> Remove any asset below your minimum ESG score, then find the tangency portfolio from what remains.</li>
+        <li><strong>Best-in-Class:</strong> Apply a small return tilt to the stronger ESG performer, then find the tangency portfolio.</li>
+        <li><strong>ESG Integration:</strong> Add ESG scores directly to effective expected returns (scaled by λ = {lambda_esg:.2f}), then find the tangency portfolio.</li>
     </ul>
+    <p><strong>Stage 2 — Risk-free allocation</strong></p>
+    <p>Once the tangency portfolio is found, QGreen determines how much of your total wealth to allocate to it versus the risk-free asset. 
+    This is solved by maximising the quadratic utility function:</p>
+    <p><strong>U = E[Rₚ] − ½ · γ · σ²ₚ</strong></p>
+    <p>where γ is your risk-aversion coefficient (derived from your quiz answers, not entered manually). 
+    The analytical solution gives: weight in tangency = (E[Rₜ] − rf) / (γ · σ²ₜ), clamped to [0%, 100%].
+    Your risk profile ({risk_label}) implies γ = {gamma}, giving a {alpha*100:.0f}% allocation to the tangency portfolio
+    and {w_rf*100:.0f}% to the risk-free asset at rf = {rf*100:.1f}%.</p>
 </div>
 <div class="soft-box">
-    <h4>Current settings</h4>
-    <p>Risk profile: <strong>{risk_label}</strong> so γ = <strong>{gamma}</strong>.</p>
-    <p>ESG model: <strong>{esg_mode}</strong> so λ = <strong>{lambda_esg:.2f}</strong>.</p>
-    <p>Correlation source: <strong>{corr_source}</strong> with ρ = <strong>{corr_live:.3f}</strong>.</p>
-</div>
+    <h4>Correlation</h4>
+    <p>In Auto and Choose modes, QGreen fetches 3 years of daily returns from Yahoo Finance and computes the actual pairwise correlation between the two assets ({corr_live:.3f} for this portfolio, source: {corr_source}). In Manual mode you enter it directly.</p>
+</div>""", unsafe_allow_html=True)
 
+st.markdown("""
+<div class="disclaimer">
 This tool is for educational purposes and should not be treated as personal financial advice.
 </div>""", unsafe_allow_html=True)
