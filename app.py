@@ -336,22 +336,14 @@ def risky_objective(x1, x2, mu1, mu2, s1, s2, corr, gamma, lambda_esg, esg1, esg
     return ret_term - 0.5 * gamma * var_term + lambda_esg * (esg_avg / 100.0)
 
 
-def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, esg_threshold, max_risky_weight=2.0):
+def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, esg_threshold, max_risky_weight=1.5, n_grid=351, frontier_n=101):
     """
-    Directly maximises Thomas's audited objective over risky weights x1 and x2.
-
-    Key rules from the audit note:
-    - x1 and x2 are fractions of wealth invested in risky assets
-    - x1 + x2 does NOT need to equal 1
-    - the remainder is implicitly risk-free (or borrowed from rf)
-    - ESG utility is based on the risky-asset weighted average ESG score only
-    - no short selling: x1, x2 >= 0
+    Fast vectorised optimiser for Thomas's audited objective.
     """
     r1, r2 = asset1["ret"], asset2["ret"]
     s1, s2 = asset1["sd"], asset2["sd"]
     esg1, esg2 = asset1["esg"], asset2["esg"]
 
-    # Optional app-specific exclusion screen, kept as a valid extra feature.
     a1_allowed = True
     a2_allowed = True
     excluded = []
@@ -365,75 +357,68 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
         if not a1_allowed and not a2_allowed:
             return {"error": f"Both assets fall below the ESG threshold of {esg_threshold:.0f}."}
 
-    grid = np.linspace(0.0, max_risky_weight, 801)
-    best_val = -np.inf
-    best_x1, best_x2 = 0.0, 0.0
+    grid = np.linspace(0.0, max_risky_weight, n_grid)
+    X1, X2 = np.meshgrid(grid, grid, indexing="ij")
+    valid = np.ones_like(X1, dtype=bool)
+    if not a1_allowed:
+        valid &= X1 <= 1e-12
+    if not a2_allowed:
+        valid &= X2 <= 1e-12
 
-    for x1 in grid:
-        if not a1_allowed and x1 > 1e-12:
-            continue
-        for x2 in grid:
-            if not a2_allowed and x2 > 1e-12:
-                continue
-            val = risky_objective(x1, x2, r1, r2, s1, s2, corr, gamma, lambda_esg, esg1, esg2)
-            if val > best_val:
-                best_val = val
-                best_x1, best_x2 = float(x1), float(x2)
+    ret_term = X1 * r1 + X2 * r2
+    var_term = X1**2 * s1**2 + X2**2 * s2**2 + 2 * X1 * X2 * corr * s1 * s2
+    total_risky = X1 + X2
+    esg_avg = np.divide(X1 * esg1 + X2 * esg2, total_risky, out=np.zeros_like(total_risky), where=total_risky > 1e-12)
+    objective = ret_term - 0.5 * gamma * var_term + lambda_esg * (esg_avg / 100.0)
+    objective = np.where(valid, objective, -np.inf)
+
+    best_idx = np.unravel_index(np.nanargmax(objective), objective.shape)
+    best_x1 = float(X1[best_idx])
+    best_x2 = float(X2[best_idx])
+    best_val = float(objective[best_idx])
 
     x_total = best_x1 + best_x2
     x_rf = 1.0 - x_total
-
     mu = np.array([r1, r2], dtype=float)
     x = np.array([best_x1, best_x2], dtype=float)
     Sigma = covariance_matrix(s1, s2, corr)
     ret_risky = float(x @ mu)
     var_risky = float(x @ Sigma @ x)
     sd_risky = float(np.sqrt(max(var_risky, 1e-12)))
-    if x_total > 1e-12:
-        esg_avg = float((best_x1 * esg1 + best_x2 * esg2) / x_total)
-    else:
-        esg_avg = 0.0
-
-    # Full expected portfolio return includes the implicit rf holding / borrowing.
+    esg_avg_best = float((best_x1 * esg1 + best_x2 * esg2) / x_total) if x_total > 1e-12 else 0.0
     ret_total = ret_risky + x_rf * rf
     sd_total = sd_risky
     sharpe_total = (ret_total - rf) / sd_total if sd_total > 1e-12 else 0.0
 
-    # Frontier for plotting / audit tables.
-    xs = np.linspace(0.0, max_risky_weight, 201)
-    records = []
-    for x1 in xs:
-        if not a1_allowed and x1 > 1e-12:
-            continue
-        for x2 in xs:
-            if not a2_allowed and x2 > 1e-12:
-                continue
-            x_total_i = x1 + x2
-            x_rf_i = 1.0 - x_total_i
-            ret_risky_i = x1 * r1 + x2 * r2
-            var_i = x1**2 * s1**2 + x2**2 * s2**2 + 2 * x1 * x2 * corr * s1 * s2
-            sd_i = float(np.sqrt(max(var_i, 1e-12)))
-            esg_i = float((x1 * esg1 + x2 * esg2) / x_total_i) if x_total_i > 1e-12 else 0.0
-            obj_i = risky_objective(x1, x2, r1, r2, s1, s2, corr, gamma, lambda_esg, esg1, esg2)
-            ret_total_i = ret_risky_i + x_rf_i * rf
-            sharpe_i = (ret_total_i - rf) / sd_i if sd_i > 1e-12 else 0.0
-            records.append((x1, x2, x_rf_i, ret_total_i, sd_i, esg_i, obj_i, sharpe_i))
+    # Lighter frontier for plotting
+    fg = np.linspace(0.0, max_risky_weight, frontier_n)
+    FX1, FX2 = np.meshgrid(fg, fg, indexing="ij")
+    fvalid = np.ones_like(FX1, dtype=bool)
+    if not a1_allowed:
+        fvalid &= FX1 <= 1e-12
+    if not a2_allowed:
+        fvalid &= FX2 <= 1e-12
+    f_total = FX1 + FX2
+    frontier = pd.DataFrame({
+        "x1": FX1[fvalid].ravel(),
+        "x2": FX2[fvalid].ravel(),
+    })
+    frontier["x_rf"] = 1.0 - (frontier["x1"] + frontier["x2"])
+    frontier["ret_total"] = frontier["x1"] * r1 + frontier["x2"] * r2 + frontier["x_rf"] * rf
+    frontier_var = frontier["x1"]**2 * s1**2 + frontier["x2"]**2 * s2**2 + 2 * frontier["x1"] * frontier["x2"] * corr * s1 * s2
+    frontier["sd"] = np.sqrt(np.maximum(frontier_var, 1e-12))
+    risky_sum = frontier["x1"] + frontier["x2"]
+    frontier["esg"] = np.where(risky_sum > 1e-12, (frontier["x1"] * esg1 + frontier["x2"] * esg2) / risky_sum, 0.0)
+    frontier["objective"] = frontier["x1"] * r1 + frontier["x2"] * r2 - 0.5 * gamma * frontier_var + lambda_esg * (frontier["esg"] / 100.0)
+    frontier["sharpe"] = np.where(frontier["sd"] > 1e-12, (frontier["ret_total"] - rf) / frontier["sd"], 0.0)
 
-    frontier = pd.DataFrame(records, columns=["x1", "x2", "x_rf", "ret_total", "sd", "esg", "objective", "sharpe"])
-
-    # Pure mean-variance benchmark for audit display when λ=0 comparison is useful.
-    bench_val = -np.inf
-    bench_x1 = bench_x2 = 0.0
-    for x1 in grid:
-        if not a1_allowed and x1 > 1e-12:
-            continue
-        for x2 in grid:
-            if not a2_allowed and x2 > 1e-12:
-                continue
-            val = risky_objective(x1, x2, r1, r2, s1, s2, corr, gamma, 0.0, esg1, esg2)
-            if val > bench_val:
-                bench_val = val
-                bench_x1, bench_x2 = float(x1), float(x2)
+    # λ = 0 benchmark for audit display
+    bench_objective = ret_term - 0.5 * gamma * var_term
+    bench_objective = np.where(valid, bench_objective, -np.inf)
+    bench_idx = np.unravel_index(np.nanargmax(bench_objective), bench_objective.shape)
+    bench_x1 = float(X1[bench_idx])
+    bench_x2 = float(X2[bench_idx])
+    bench_val = float(bench_objective[bench_idx])
 
     return {
         "asset1": asset1,
@@ -444,7 +429,7 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
         "total_risky": x_total,
         "ret_opt": ret_total,
         "sd_opt": sd_total,
-        "esg_opt": esg_avg,
+        "esg_opt": esg_avg_best,
         "objective_opt": best_val,
         "sharpe_opt": sharpe_total,
         "excluded": excluded,
