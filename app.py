@@ -802,20 +802,8 @@ def build_portfolio_narrative(client_name, result, asset1, asset2, esg_mode, ris
 
 
 # ============================================================
-# SESSION STATE INITIALIZATION
+# SESSION STATE — MODE SELECTION
 # ============================================================
-if "portfolio_built" not in st.session_state:
-    st.session_state.portfolio_built = False
-    st.session_state.result = None
-    st.session_state.asset1 = None
-    st.session_state.asset2 = None
-    st.session_state.gamma = None
-    st.session_state.lambda_esg = None
-    st.session_state.risk_label = None
-    st.session_state.esg_mode = None
-    st.session_state.corr_live = None
-    st.session_state.corr_source = None
-
 mode_options = [
     "A) Let QGreen choose for me",
     "B) I choose my assets",
@@ -856,7 +844,6 @@ for col, (title, desc, badge, mode_value) in zip((m1, m2, m3), card_specs):
 </div>""", unsafe_allow_html=True)
     if col.button("Select" if st.session_state["mode"] != mode_value else "✓ Selected", key=f"mode_btn_{mode_value}", use_container_width=True):
         st.session_state["mode"] = mode_value
-        st.session_state.portfolio_built = False  # Reset when changing mode
         st.rerun()
 
 mode = st.session_state["mode"]
@@ -880,14 +867,6 @@ with st.sidebar:
     )
     
     use_quiz = (input_method == "Guided Quiz (Recommended)")
-    
-    # Initialize variables
-    gamma = 4.0
-    lambda_esg = 0.0
-    risk_label = "Balanced ⚖️"
-    esg_mode = "⚪ Finance as Usual Model"
-    esg_threshold = 0.0
-    min_esg_score = 0.0
     
     # ── RISK & ESG INPUTS ───────────────────────────────────────────────────
     if use_quiz:
@@ -950,7 +929,7 @@ with st.sidebar:
         gamma = st.slider(
             "γ (gamma)", 
             min_value=0.5, 
-            max_value=10.0,  # Changed from 15 to 10
+            max_value=15.0, 
             value=4.0, 
             step=0.5,
             help="Risk aversion parameter in the utility function U = E[R] - ½γσ². "
@@ -984,17 +963,16 @@ with st.sidebar:
             
         st.info(f"ESG Model: {esg_mode.split('—')[-1].strip() if '—' in esg_mode else esg_mode}")
         
-        # Advanced users can still set constraints
-        st.markdown("---")
-        st.markdown("### 🎯 Optional Constraints")
-        esg_threshold = st.slider("Exclusion threshold (ESG < X removed)", 0, 100, 0,
-                                   help="Set to 0 to disable exclusion")
-        min_esg_score = st.slider("Minimum portfolio ESG score", 0, 100, 0,
-                                   help="Hard floor on portfolio ESG. Set to 0 to disable.")
-        if esg_threshold == 0:
-            esg_threshold = 0.0
-        if min_esg_score == 0:
-            min_esg_score = 0.0
+        # Advanced users can still set constraints if they want
+        with st.expander("Optional Constraints"):
+            esg_threshold = st.slider("Exclusion threshold (ESG < X removed)", 0, 100, 0,
+                                       help="Set to 0 to disable exclusion")
+            min_esg_score = st.slider("Minimum portfolio ESG score", 0, 100, 0,
+                                       help="Hard floor on portfolio ESG. Set to 0 to disable.")
+            if esg_threshold == 0:
+                esg_threshold = 0.0
+            if min_esg_score == 0:
+                min_esg_score = 0.0
 
     st.markdown("---")
     st.markdown("### 💰 Risk-free rate")
@@ -1005,7 +983,7 @@ with st.sidebar:
 display_client_name = client_name.strip() if client_name and client_name.strip() else "Client"
 
 # ============================================================
-# BUILD ASSETS & OPTIMIZE (ONLY WHEN RUN CLICKED OR ALREADY BUILT)
+# BUILD ASSETS
 # ============================================================
 asset1 = asset2 = None
 corr_live = None
@@ -1013,21 +991,7 @@ corr_source = "Manual"
 mode_explainer = ""
 data_message = ""
 
-# Check if we need to build portfolio
-needs_build = run or st.session_state.portfolio_built
-
-if run:
-    # Store current parameters in session state
-    st.session_state.gamma = gamma
-    st.session_state.lambda_esg = lambda_esg
-    st.session_state.risk_label = risk_label
-    st.session_state.esg_mode = esg_mode
-    st.session_state.esg_threshold = esg_threshold
-    st.session_state.min_esg_score = min_esg_score
-    st.session_state.rf = rf
-    st.session_state.use_quiz = use_quiz
-
-if mode.startswith("A") and needs_build:
+if mode.startswith("A"):
     mode_explainer = "QGreen selected two companies based on your ESG preferences and risk profile."
     if len(esg_df) >= 2:
         a1_row, a2_row = pick_auto_pair(esg_df, risk_label, lambda_esg, esg_mode, esg_threshold, min_esg_score)
@@ -1047,7 +1011,7 @@ if mode.startswith("A") and needs_build:
                 corr_source = "QGreen default (0.30)"
                 data_message = "Live market data unavailable — using QGreen estimates with a default correlation of 0.30."
 
-elif mode.startswith("B") and needs_build:
+elif mode.startswith("B"):
     st.subheader("Choose your two assets")
     c1, c2 = st.columns(2)
     with c1:
@@ -1073,7 +1037,7 @@ elif mode.startswith("B") and needs_build:
         data_message = "Live market data unavailable — using QGreen estimates with a default correlation of 0.30."
     mode_explainer = "You picked two assets and QGreen fetched live data and computed the optimal portfolio."
 
-elif mode.startswith("C") and needs_build:
+else:
     st.subheader("Enter both assets manually")
     c1, c2 = st.columns(2)
     with c1:
@@ -1094,8 +1058,7 @@ elif mode.startswith("C") and needs_build:
     asset2 = build_asset(n2, t2, r2, sd2, esg2_val, "Manual input", "C")
     mode_explainer = "You entered both assets manually."
 
-# ── PRE-RUN ──
-if not needs_build:
+if not run:
     st.markdown("### How to use QGreen")
     st.markdown(f"""
 <div class="soft-box">
@@ -1111,47 +1074,18 @@ if not needs_build:
 </div>""", unsafe_allow_html=True)
     st.stop()
 
-# Execute optimization if we have assets and (run was clicked or we have stored results)
-if asset1 is not None and asset2 is not None and run:
-    # Only optimize if run was just clicked (not using stored results)
-    result = optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr_live, rf, esg_mode, esg_threshold, min_esg_score)
-    if result.get("error"):
-        st.error(result["error"])
-        st.stop()
-    
-    # Store everything in session state
-    st.session_state.portfolio_built = True
-    st.session_state.result = result
-    st.session_state.asset1 = asset1
-    st.session_state.asset2 = asset2
-    st.session_state.corr_live = corr_live
-    st.session_state.corr_source = corr_source
-    st.session_state.mode_explainer = mode_explainer
-    st.session_state.data_message = data_message
-
-# Retrieve from session state if already built
-if st.session_state.portfolio_built and not run:
-    result = st.session_state.result
-    asset1 = st.session_state.asset1
-    asset2 = st.session_state.asset2
-    gamma = st.session_state.gamma
-    lambda_esg = st.session_state.lambda_esg
-    risk_label = st.session_state.risk_label
-    esg_mode = st.session_state.esg_mode
-    esg_threshold = st.session_state.esg_threshold
-    min_esg_score = st.session_state.min_esg_score
-    rf = st.session_state.rf
-    corr_live = st.session_state.corr_live
-    corr_source = st.session_state.corr_source
-    mode_explainer = st.session_state.mode_explainer
-    data_message = st.session_state.data_message
-
-if not st.session_state.portfolio_built:
+if asset1 is None or asset2 is None:
+    st.error("Could not build assets. Please check your inputs or choose a different mode.")
     st.stop()
 
 # ============================================================
-# EXTRACT RESULTS
+# OPTIMISE
 # ============================================================
+result = optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr_live, rf, esg_mode, esg_threshold, min_esg_score)
+if result.get("error"):
+    st.error(result["error"])
+    st.stop()
+
 w1 = result["w1"]
 w2 = result["w2"]
 w_rf = result["w_rf"]
@@ -1168,7 +1102,7 @@ w1_tang = result["w1_tang"]
 w2_tang = result["w2_tang"]
 
 # ============================================================
-# RESULTS DISPLAY
+# RESULTS
 # ============================================================
 st.markdown(f"## 🎯 {display_client_name}'s Optimal Portfolio")
 st.caption(f"Client: {display_client_name} · Risk profile: {risk_label} · γ={gamma}, λ={lambda_esg:.3f} · rf = {rf*100:.1f}% · ρ = {corr_live:.2f} ({corr_source})")
@@ -1281,7 +1215,7 @@ with story_col:
     st.markdown(story_html, unsafe_allow_html=True)
 
 # ============================================================
-# TABS (INCLUDING MONTE CARLO WITH SESSION STATE HANDLING)
+# TABS (INCLUDING MONTE CARLO)
 # ============================================================
 portfolio_tab, esg_tab, impact_tab, mc_tab, method_tab = st.tabs(["📈 Portfolio Frontier", "🌱 ESG Frontier", "🌍 Impact Metrics", "🔮 Monte Carlo", "🧠 Methodology"])
 
@@ -1354,32 +1288,25 @@ with mc_tab:
     st.markdown("### 🔮 Monte Carlo Future Value Simulation")
     st.caption("Simulates possible future paths of your optimal portfolio using Geometric Brownian Motion to show tail risks and probability distributions.")
     
-    # Use unique keys to prevent conflicts
     col_mc1, col_mc2, col_mc3 = st.columns(3)
     with col_mc1:
-        initial_investment = st.number_input("Initial Investment ($)", min_value=1000, max_value=10000000, value=10000, step=1000, key="mc_initial")
+        initial_investment = st.number_input("Initial Investment ($)", min_value=1000, max_value=10000000, value=10000, step=1000)
     with col_mc2:
-        years_mc = st.slider("Investment Horizon (years)", min_value=1, max_value=30, value=10, key="mc_years")
+        years_mc = st.slider("Investment Horizon (years)", min_value=1, max_value=30, value=10)
     with col_mc3:
-        n_sims = st.selectbox("Number of Simulations", options=[500, 1000, 2500, 5000], index=1, key="mc_sims")
+        n_sims = st.selectbox("Number of Simulations", options=[500, 1000, 2500, 5000], index=1)
     
-    # Run simulation using stored portfolio parameters
+    # Run simulation
     np.random.seed(42)
-    mu_port = ret_opt  # annualized decimal (e.g., 0.08 for 8%)
-    sigma_port = sd_opt  # annualized decimal
+    # Portfolio annual return and volatility (from optimization result)
+    mu_port = ret_opt  # already annualized
+    sigma_port = sd_opt  # already annualized
     
-    # GBM: S_t = S_0 * exp((mu - 0.5*sigma^2)*t + sigma*W_t)
-    # For discrete annual steps: S_{t+1} = S_t * exp((mu - 0.5*sigma^2)*dt + sigma*sqrt(dt)*Z)
-    dt = 1.0
-    random_shocks = np.random.standard_normal((n_sims, years_mc))
+    # Generate random returns: (n_sims, years_mc)
+    random_returns = np.random.normal(mu_port, sigma_port, (n_sims, years_mc))
     
-    # Calculate cumulative returns log-normally (more accurate for GBM)
-    drift = (mu_port - 0.5 * sigma_port**2) * dt
-    diffusion = sigma_port * np.sqrt(dt) * random_shocks
-    log_returns = drift + diffusion
-    
-    # Cumulative product of exp(log_returns)
-    wealth_paths = initial_investment * np.exp(np.cumsum(log_returns, axis=1))
+    # Calculate wealth paths: cumprod of (1 + returns) * initial
+    wealth_paths = np.cumprod(1 + random_returns, axis=1) * initial_investment
     
     ending_values = wealth_paths[:, -1]
     mean_val = np.mean(ending_values)
@@ -1390,26 +1317,18 @@ with mc_tab:
     rf_final = initial_investment * ((1 + rf) ** years_mc)
     prob_beat_rf = np.mean(ending_values > rf_final) * 100
     
-    # Metrics display
+    # Metrics
     mc_cols = st.columns(4)
     mc_cols[0].metric("Median Ending Value", f"${median_val:,.0f}")
-    mc_cols[1].metric("5th Percentile (VaR 95%)", f"${var_5:,.0f}", delta=f"{((var_5-initial_investment)/initial_investment)*100:.1f}%", delta_color="normal")
+    mc_cols[1].metric("5th Percentile (VaR 95%)", f"${var_5:,.0f}", delta=f"-{((initial_investment-var_5)/initial_investment)*100:.1f}%", delta_color="inverse")
     mc_cols[2].metric("95th Percentile", f"${var_95:,.0f}")
-    mc_cols[3].metric("Probability of Loss", f"{prob_loss:.1f}%", delta=f"{100-prob_loss:.1f}% chance of gain", delta_color="off" if prob_loss < 50 else "inverse")
+    mc_cols[3].metric("Probability of Loss", f"{prob_loss:.1f}%", delta=f"{100-prob_loss:.1f}% chance of gain", delta_color="off")
     
     # Histogram
     fig_mc, ax_mc = plt.subplots(figsize=(10, 5))
     fig_mc.patch.set_facecolor("#f4fbf5")
     ax_mc.set_facecolor("#f4fbf5")
-    
-    # Use log bins if the range is very large
-    if median_val / initial_investment > 10 or initial_investment / var_5 > 10 if var_5 > 0 else False:
-        bins = np.logspace(np.log10(max(ending_values.min(), 100)), np.log10(ending_values.max()), 50)
-        ax_mc.set_xscale('log')
-    else:
-        bins = 50
-        
-    ax_mc.hist(ending_values, bins=bins, alpha=0.75, color='#2E7D32', edgecolor='white', density=True)
+    ax_mc.hist(ending_values, bins=50, alpha=0.75, color='#2E7D32', edgecolor='white', density=True)
     ax_mc.axvline(median_val, color='#D32F2F', linestyle='--', linewidth=2.5, label=f'Median: ${median_val:,.0f}')
     ax_mc.axvline(var_5, color='#F9A825', linestyle='--', linewidth=2.5, label=f'5th %ile (VaR): ${var_5:,.0f}')
     ax_mc.axvline(initial_investment, color='#1565C0', linestyle='-', linewidth=2, label=f'Initial: ${initial_investment:,.0f}')
@@ -1421,29 +1340,20 @@ with mc_tab:
     st.pyplot(fig_mc)
     plt.close(fig_mc)
     
-    # Sample paths (show only 100 for performance)
+    # Sample paths
     fig_path, ax_path = plt.subplots(figsize=(10, 5))
     fig_path.patch.set_facecolor("#f4fbf5")
     ax_path.set_facecolor("#f4fbf5")
-    n_display = min(100, n_sims)
-    years_axis = np.arange(years_mc + 1)
-    # Include starting point
-    wealth_display = np.column_stack([np.full(n_display, initial_investment), wealth_paths[:n_display]])
-    
+    n_display = min(50, n_sims)
     for i in range(n_display):
-        ax_path.plot(years_axis, wealth_display[i], alpha=0.3, color='#2E7D32', linewidth=0.6)
+        ax_path.plot(wealth_paths[i], alpha=0.3, color='#2E7D32', linewidth=0.6)
     ax_path.axhline(initial_investment, color='#1565C0', linestyle='--', alpha=0.8, label='Initial investment')
     ax_path.set_xlabel("Years", fontsize=11)
     ax_path.set_ylabel("Portfolio Value ($)", fontsize=11)
     ax_path.set_title(f"Sample Portfolio Paths ({n_display} random simulations)", fontsize=12, fontweight='bold')
     ax_path.grid(True, alpha=0.3)
-    # Format y-axis as currency
-    ax_path.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}k' if x < 1000000 else f'${x/1000000:.1f}M'))
     st.pyplot(fig_path)
     plt.close(fig_path)
-    
-    # Explanation
-    total_return_pct = ((median_val / initial_investment) ** (1/years_mc) - 1) * 100 if years_mc > 0 else 0
     
     st.markdown(f"""
 <div class="soft-box">
@@ -1451,11 +1361,11 @@ with mc_tab:
     <p>Based on your optimal portfolio's expected return of <strong>{ret_opt*100:.2f}%</strong> and volatility of <strong>{sd_opt*100:.2f}%</strong>:</p>
     <ul>
         <li><strong>Value at Risk (5th percentile):</strong> There is a 5% chance your portfolio will be worth less than <strong>${var_5:,.0f}</strong> after {years_mc} years.</li>
-        <li><strong>Implied median growth rate:</strong> <strong>{total_return_pct:.1f}%</strong> per year (geometric).</li>
         <li><strong>Probability of beating risk-free:</strong> <strong>{prob_beat_rf:.1f}%</strong> chance of doing better than just holding cash (which would grow to ${rf_final:,.0f}).</li>
-        <li><strong>Probability of loss:</strong> <strong>{prob_loss:.1f}%</strong> chance of ending with less than you started.</li>
+        <li><strong>Median outcome:</strong> Half of simulations end above <strong>${median_val:,.0f}</strong>.</li>
+        <li><strong>Methodology:</strong> Geometric Brownian Motion with constant drift μ={ret_opt:.4f} and volatility σ={sd_opt:.4f}. Assumes annual rebalancing to maintain optimal weights.</li>
     </ul>
-    <p style="font-size:0.9rem;color:#555;margin-top:0.5rem;"><em>Note: Past performance does not guarantee future results. This simulation assumes Geometric Brownian Motion with constant parameters. Actual markets experience time-varying volatility and tail events not captured here.</em></p>
+    <p style="font-size:0.9rem;color:#555;margin-top:0.5rem;"><em>Note: Past performance does not guarantee future results. This simulation assumes returns are normally distributed and parameters remain constant.</em></p>
 </div>
 """, unsafe_allow_html=True)
 
