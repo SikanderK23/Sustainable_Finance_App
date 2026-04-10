@@ -210,6 +210,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
 # ============================================================
 # DATA LOADING
 # ============================================================
@@ -277,12 +278,15 @@ def load_impact_data():
     work["value_num"] = pd.to_numeric(work["value"], errors="coerce")
     work["valuescore_num"] = pd.to_numeric(work["valuescore"], errors="coerce")
     work["bool_num"] = work["value"].astype(str).str.strip().str.lower().map({"true": 1.0, "false": 0.0})
-    work["metric_value"] = np.where(work["fieldname"].isin(score_fields), work["valuescore_num"] * 100, work["value_num"])
-    work.loc[work["fieldname"].isin(bool_fields), "metric_value"] = work.loc[work["fieldname"].isin(bool_fields), "bool_num"]
+    work["metric_value"] = np.where(work["fieldname"].isin(score_fields), work["valuescore_num"] * 100,
+                                    work["value_num"])
+    work.loc[work["fieldname"].isin(bool_fields), "metric_value"] = work.loc[
+        work["fieldname"].isin(bool_fields), "bool_num"]
     work = work[work["fieldname"].isin(metric_fields)].copy()
     grouped = (work.groupby(["ticker", "ticker_key", "year", "fieldname"], dropna=False, as_index=False)
                .agg(metric_value=("metric_value", "mean")))
-    wide = grouped.pivot_table(index=["ticker", "ticker_key", "year"], columns="fieldname", values="metric_value", aggfunc="mean").reset_index()
+    wide = grouped.pivot_table(index=["ticker", "ticker_key", "year"], columns="fieldname", values="metric_value",
+                               aggfunc="mean").reset_index()
     candidate_cols = [c for c in metric_fields if c in wide.columns]
     wide["impact_coverage"] = wide[candidate_cols].notna().sum(axis=1) if candidate_cols else 0
     wide = wide.sort_values(["ticker_key", "impact_coverage", "year"], ascending=[True, False, False])
@@ -299,6 +303,7 @@ if not impact_wide.empty:
         if key:
             impact_lookup.setdefault(key, []).append(rec)
 impact_keys = sorted(impact_lookup.keys())
+
 
 # ============================================================
 # PORTFOLIO MATH — CORRECT TWO-STAGE APPROACH
@@ -429,7 +434,7 @@ def _golden_section_min(f, a, b, tol=1e-9, max_iter=300):
 def portfolio_moments(w1, r1, r2, s1, s2, corr):
     w2 = 1.0 - w1
     ret = w1 * r1 + w2 * r2
-    var = w1**2 * s1**2 + w2**2 * s2**2 + 2 * corr * w1 * w2 * s1 * s2
+    var = w1 ** 2 * s1 ** 2 + w2 ** 2 * s2 ** 2 + 2 * corr * w1 * w2 * s1 * s2
     sd = float(np.sqrt(max(var, 1e-12)))
     return float(ret), sd
 
@@ -477,7 +482,7 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
     def risky_mix_objective(w1):
         w2 = 1.0 - w1
         mu_p_ex = w1 * mu1_ex + w2 * mu2_ex
-        var_p = max(w1**2 * s1**2 + w2**2 * s2**2 + 2 * corr * w1 * w2 * s1 * s2, 1e-14)
+        var_p = max(w1 ** 2 * s1 ** 2 + w2 ** 2 * s2 ** 2 + 2 * corr * w1 * w2 * s1 * s2, 1e-14)
         s_bar = w1 * e1_norm + w2 * e2_norm
         alpha_star = max(0.0, mu_p_ex / (gamma * var_p)) if gamma > 0 else 0.0
         return alpha_star * mu_p_ex - 0.5 * gamma * (alpha_star ** 2) * var_p + lam * s_bar
@@ -504,7 +509,7 @@ def optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr, rf, esg_mode, es
     w1_opt = alpha * w1_tang
     w2_opt = alpha * w2_tang
     ret_opt = w_rf * rf + w1_opt * r1 + w2_opt * r2
-    sd_opt = np.sqrt(max(w1_opt**2 * s1**2 + w2_opt**2 * s2**2 + 2 * corr * w1_opt * w2_opt * s1 * s2, 0.0))
+    sd_opt = np.sqrt(max(w1_opt ** 2 * s1 ** 2 + w2_opt ** 2 * s2 ** 2 + 2 * corr * w1_opt * w2_opt * s1 * s2, 0.0))
     sharpe_tang = mu_p_ex / sd_tang if sd_tang > 1e-10 else 0.0
     sharpe_opt = (ret_opt - rf) / sd_opt if sd_opt > 1e-10 else 0.0
 
@@ -573,7 +578,8 @@ def derive_esg_preferences(answers):
         model_name = "🌍 Sustainable Finance Model 3.0 — Strong ESG Preference"
         model_short = "Strong ESG Preference"
         description = "A high λ can rationally push the solution toward a corner allocation in the greener asset."
-    return {"total": total, "lambda": lambda_esg, "model_name": model_name, "model_short": model_short, "description": description}
+    return {"total": total, "lambda": lambda_esg, "model_name": model_name, "model_short": model_short,
+            "description": description}
 
 
 def risk_profile_from_quiz(score: int):
@@ -594,10 +600,12 @@ def ticker_key_fn(value):
 def ticker_candidates(value):
     raw = str(value).upper().strip()
     candidates = []
+
     def add_c(v):
         k = ticker_key_fn(v)
         if k and k not in candidates:
             candidates.append(k)
+
     add_c(raw)
     for sep in [".", ":", "/", " ", "-", "_"]:
         if sep in raw:
@@ -612,16 +620,27 @@ def get_impact_profile(ticker, esg_hint=None, name_hint=None):
         if not profiles:
             return {}
         if len(profiles) == 1:
-            e = dict(profiles[0]); e["match_type"] = match_type; e["match_quality"] = "single_candidate"; return e
-        scored = [(p, abs(float(p.get("ESGScore", 0)) - float(esg_hint)) if esg_hint is not None and pd.notna(p.get("ESGScore")) else None) for p in profiles]
+            e = dict(profiles[0]);
+            e["match_type"] = match_type;
+            e["match_quality"] = "single_candidate";
+            return e
+        scored = [(p, abs(float(p.get("ESGScore", 0)) - float(esg_hint)) if esg_hint is not None and pd.notna(
+            p.get("ESGScore")) else None) for p in profiles]
         with_diff = [(p, d) for p, d in scored if d is not None]
         if with_diff:
             with_diff.sort(key=lambda x: x[1])
             best, best_diff = with_diff[0]
-            e = dict(best); e["esg_diff"] = best_diff; e["match_type"] = match_type + "_esg_resolved"
-            e["match_quality"] = "high_confidence" if best_diff <= 2 else ("medium_confidence" if best_diff <= 5 else "low_confidence")
+            e = dict(best);
+            e["esg_diff"] = best_diff;
+            e["match_type"] = match_type + "_esg_resolved"
+            e["match_quality"] = "high_confidence" if best_diff <= 2 else (
+                "medium_confidence" if best_diff <= 5 else "low_confidence")
             return e
-        e = dict(profiles[0]); e["match_type"] = match_type; e["match_quality"] = "multi_no_hint"; return e
+        e = dict(profiles[0]);
+        e["match_type"] = match_type;
+        e["match_quality"] = "multi_no_hint";
+        return e
+
     exact = []
     for k in ticker_candidates(ticker):
         ps = impact_lookup.get(k)
@@ -653,9 +672,9 @@ def safe_sum_numeric(values):
 def format_tco2e(value):
     if pd.isna(value): return "Not available"
     av = abs(float(value))
-    if av >= 1e9: return f"{value/1e9:.2f}bn tCO₂e"
-    if av >= 1e6: return f"{value/1e6:.2f}m tCO₂e"
-    if av >= 1e3: return f"{value/1e3:.1f}k tCO₂e"
+    if av >= 1e9: return f"{value / 1e9:.2f}bn tCO₂e"
+    if av >= 1e6: return f"{value / 1e6:.2f}m tCO₂e"
+    if av >= 1e3: return f"{value / 1e3:.1f}k tCO₂e"
     return f"{value:,.0f} tCO₂e"
 
 
@@ -673,25 +692,36 @@ def compute_impact_snapshot(asset1, asset2, w1, w2):
     cov = (w1 if bool(p1) else 0.0) + (w2 if bool(p2) else 0.0)
     if cov <= 0:
         return {"available": False, "message": "No LSEG impact data matched for the selected tickers."}
+
     def gv(p, *keys):
         return safe_sum_numeric([p.get(k) for k in keys]) if p else np.nan
+
     s12_1 = gv(p1, "CO2EquivalentsEmissionDirectScope1", "CO2EquivalentsEmissionIndirectScope2")
     s12_2 = gv(p2, "CO2EquivalentsEmissionDirectScope1", "CO2EquivalentsEmissionIndirectScope2")
-    s123_1 = gv(p1, "CO2EquivalentsEmissionDirectScope1", "CO2EquivalentsEmissionIndirectScope2", "CO2EquivalentsEmissionIndirectScope3")
-    s123_2 = gv(p2, "CO2EquivalentsEmissionDirectScope1", "CO2EquivalentsEmissionIndirectScope2", "CO2EquivalentsEmissionIndirectScope3")
+    s123_1 = gv(p1, "CO2EquivalentsEmissionDirectScope1", "CO2EquivalentsEmissionIndirectScope2",
+                "CO2EquivalentsEmissionIndirectScope3")
+    s123_2 = gv(p2, "CO2EquivalentsEmissionDirectScope1", "CO2EquivalentsEmissionIndirectScope2",
+                "CO2EquivalentsEmissionIndirectScope3")
     s12_p, _ = weighted_metric([s12_1, s12_2], [w1, w2])
     s123_p, _ = weighted_metric([s123_1, s123_2], [w1, w2])
-    em_p, _ = weighted_metric([p1.get("ESGEmissionsScore", np.nan) if p1 else np.nan, p2.get("ESGEmissionsScore", np.nan) if p2 else np.nan], [w1, w2])
-    gd_p, _ = weighted_metric([p1.get("BoardGenderDiversityPercent", np.nan) if p1 else np.nan, p2.get("BoardGenderDiversityPercent", np.nan) if p2 else np.nan], [w1, w2])
-    et_p, _ = weighted_metric([100*p1.get("EmissionsTrading", np.nan) if p1 else np.nan, 100*p2.get("EmissionsTrading", np.nan) if p2 else np.nan], [w1, w2])
-    bd_p, _ = weighted_metric([100*p1.get("BiodiversityImpactReduction", np.nan) if p1 else np.nan, 100*p2.get("BiodiversityImpactReduction", np.nan) if p2 else np.nan], [w1, w2])
+    em_p, _ = weighted_metric(
+        [p1.get("ESGEmissionsScore", np.nan) if p1 else np.nan, p2.get("ESGEmissionsScore", np.nan) if p2 else np.nan],
+        [w1, w2])
+    gd_p, _ = weighted_metric([p1.get("BoardGenderDiversityPercent", np.nan) if p1 else np.nan,
+                               p2.get("BoardGenderDiversityPercent", np.nan) if p2 else np.nan], [w1, w2])
+    et_p, _ = weighted_metric([100 * p1.get("EmissionsTrading", np.nan) if p1 else np.nan,
+                               100 * p2.get("EmissionsTrading", np.nan) if p2 else np.nan], [w1, w2])
+    bd_p, _ = weighted_metric([100 * p1.get("BiodiversityImpactReduction", np.nan) if p1 else np.nan,
+                               100 * p2.get("BiodiversityImpactReduction", np.nan) if p2 else np.nan], [w1, w2])
     insights = []
     if pd.notna(s12_p): insights.append(f"Weighted Scope 1+2 emissions: {format_tco2e(s12_p)}.")
-    if pd.notna(s123_p): insights.append(f"Weighted Scope 1+2+3 emissions: {format_tco2e(s123_p)} (where Scope 3 data is available).")
+    if pd.notna(s123_p): insights.append(
+        f"Weighted Scope 1+2+3 emissions: {format_tco2e(s123_p)} (where Scope 3 data is available).")
     if pd.notna(em_p): insights.append(f"Weighted LSEG emissions score: {em_p:.1f}/100.")
     if pd.notna(gd_p): insights.append(f"Weighted board gender diversity: {gd_p:.1f}%.")
     if pd.notna(et_p): insights.append(f"{et_p:.0f}% of risky portfolio weight sits in emissions-trading participants.")
-    if pd.notna(bd_p): insights.append(f"{bd_p:.0f}% of risky portfolio weight has biodiversity-impact reduction coverage.")
+    if pd.notna(bd_p): insights.append(
+        f"{bd_p:.0f}% of risky portfolio weight has biodiversity-impact reduction coverage.")
     return {"available": True, "scope12_port": s12_p, "scope123_port": s123_p, "emissions_score_port": em_p,
             "gender_diversity_port": gd_p, "emissions_trading_share": et_p, "biodiversity_share": bd_p,
             "coverage_weight": cov * 100, "insights": insights}
@@ -714,7 +744,8 @@ def pick_auto_pair(df, style, lambda_esg, esg_mode, esg_threshold, min_esg_score
     return anchor, companion
 
 
-def build_portfolio_narrative(client_name, result, asset1, asset2, esg_mode, risk_label, esg_threshold, min_esg_score=0.0):
+def build_portfolio_narrative(client_name, result, asset1, asset2, esg_mode, risk_label, esg_threshold,
+                              min_esg_score=0.0):
     w_rf = result["w_rf"]
     alpha = result["alpha"]
     w1_tang = result["w1_tang"]
@@ -737,20 +768,20 @@ def build_portfolio_narrative(client_name, result, asset1, asset2, esg_mode, ris
             stage1 += f" An additional hard ESG floor of {min_esg_score:.0f} was also enforced."
 
     if alpha < 0.05:
-        stage2 = f"Your risk profile ({risk_label}) is very conservative — nearly all capital ({w_rf*100:.0f}%) is held in the risk-free asset."
+        stage2 = f"Your risk profile ({risk_label}) is very conservative — nearly all capital ({w_rf * 100:.0f}%) is held in the risk-free asset."
     elif w_rf < 0.05:
-        stage2 = f"Your risk profile ({risk_label}) is aggressive — almost all capital ({alpha*100:.0f}%) is in the tangency portfolio."
+        stage2 = f"Your risk profile ({risk_label}) is aggressive — almost all capital ({alpha * 100:.0f}%) is in the tangency portfolio."
     elif w_rf > 0.55:
-        stage2 = f"Your risk profile ({risk_label}) is conservative: {w_rf*100:.0f}% in the risk-free asset, {alpha*100:.0f}% in the tangency portfolio."
+        stage2 = f"Your risk profile ({risk_label}) is conservative: {w_rf * 100:.0f}% in the risk-free asset, {alpha * 100:.0f}% in the tangency portfolio."
     else:
-        stage2 = f"Your risk profile ({risk_label}) balances: {w_rf*100:.0f}% in the risk-free asset and {alpha*100:.0f}% in the tangency portfolio."
+        stage2 = f"Your risk profile ({risk_label}) balances: {w_rf * 100:.0f}% in the risk-free asset and {alpha * 100:.0f}% in the tangency portfolio."
 
     html = f"""
 <div class="why-box">
     <h4>Why this portfolio?</h4>
     <p><strong>{client_name}</strong>, your recommendation follows a two-stage process rooted in Modern Portfolio Theory (Pedersen et al. 2021).</p>
     <p><strong>Stage 1 — ESG-constrained tangency portfolio:</strong> {stage1}</p>
-    <p>Tangency composition: <strong>{w1_tang*100:.1f}% {asset1['name']}</strong> · <strong>{w2_tang*100:.1f}% {asset2['name']}</strong>.</p>
+    <p>Tangency composition: <strong>{w1_tang * 100:.1f}% {asset1['name']}</strong> · <strong>{w2_tang * 100:.1f}% {asset2['name']}</strong>.</p>
     <p><strong>Stage 2 — Risk-free allocation:</strong> {stage2}</p>
 </div>"""
     return html
@@ -796,9 +827,12 @@ st.markdown("""
 
 # ── CLICKABLE MODE CARDS ──────────────────────────────────────────────────────
 card_specs = [
-    ("A) Auto Portfolio", "QGreen selects two companies for you based on your risk profile and ESG preferences.", "Automated", mode_options[0]),
-    ("B) Choose Your Assets", "You pick two assets by ticker and QGreen handles the full optimisation.", "Directed choice", mode_options[1]),
-    ("C) Full Manual", "Enter return, risk, ESG scores and correlation directly for complete control.", "Full control", mode_options[2]),
+    ("A) Auto Portfolio", "QGreen selects two companies for you based on your risk profile and ESG preferences.",
+     "Automated", mode_options[0]),
+    ("B) Choose Your Assets", "You pick two assets by ticker and QGreen handles the full optimisation.",
+     "Directed choice", mode_options[1]),
+    ("C) Full Manual", "Enter return, risk, ESG scores and correlation directly for complete control.", "Full control",
+     mode_options[2]),
 ]
 m1, m2, m3 = st.columns(3)
 for col, (title, desc, badge, mode_value) in zip((m1, m2, m3), card_specs):
@@ -809,7 +843,8 @@ for col, (title, desc, badge, mode_value) in zip((m1, m2, m3), card_specs):
     <p>{desc}</p>
     <span class='mode-badge'>{badge}</span>
 </div>""", unsafe_allow_html=True)
-    if col.button("Select" if st.session_state["mode"] != mode_value else "✓ Selected", key=f"mode_btn_{mode_value}", use_container_width=True):
+    if col.button("Select" if st.session_state["mode"] != mode_value else "✓ Selected", key=f"mode_btn_{mode_value}",
+                  use_container_width=True):
         st.session_state["mode"] = mode_value
         st.session_state.portfolio_built = False  # Reset when changing mode
         st.rerun()
@@ -821,7 +856,8 @@ mode = st.session_state["mode"]
 # ============================================================
 with st.sidebar:
     st.markdown("## ⚙️ Portfolio Builder")
-    client_name = st.text_input("Client name", value=st.session_state.get("client_name", ""), placeholder="Enter client name")
+    client_name = st.text_input("Client name", value=st.session_state.get("client_name", ""),
+                                placeholder="Enter client name")
     st.session_state["client_name"] = client_name
 
     # ── INPUT METHOD TOGGLE ─────────────────────────────────────────────────
@@ -833,9 +869,9 @@ with st.sidebar:
         index=0,
         help="Quiz is best for most users. Advanced mode lets you directly set the mathematical coefficients γ (risk aversion) and λ (ESG taste)."
     )
-    
+
     use_quiz = (input_method == "Guided Quiz (Recommended)")
-    
+
     # Initialize variables
     gamma = 4.0
     lambda_esg = 0.0
@@ -843,14 +879,16 @@ with st.sidebar:
     esg_mode = "⚪ Finance as Usual Model"
     esg_threshold = 0.0
     min_esg_score = 0.0
-    
+
     # ── RISK & ESG INPUTS ───────────────────────────────────────────────────
     if use_quiz:
         st.markdown("---")
         st.markdown("### 📊 Step 1 — How do you feel about risk?")
-        q1 = st.radio("If your portfolio drops 20%, you:", ["Sell to cut losses", "Hold and wait it out", "Buy more — great opportunity"], index=1)
+        q1 = st.radio("If your portfolio drops 20%, you:",
+                      ["Sell to cut losses", "Hold and wait it out", "Buy more — great opportunity"], index=1)
         q2 = st.radio("Your investment horizon is:", ["Under 2 years", "2–10 years", "Over 10 years"], index=1)
-        q3 = st.radio("Your main goal is:", ["Protecting what I have", "Balanced growth and stability", "Maximum long-term growth"], index=1)
+        q3 = st.radio("Your main goal is:",
+                      ["Protecting what I have", "Balanced growth and stability", "Maximum long-term growth"], index=1)
         score_map = {
             "Sell to cut losses": 1, "Hold and wait it out": 2, "Buy more — great opportunity": 3,
             "Under 2 years": 1, "2–10 years": 2, "Over 10 years": 3,
@@ -875,7 +913,7 @@ with st.sidebar:
         esg_pref = derive_esg_preferences(q_esg)
         lambda_esg = esg_pref["lambda"]
         esg_mode = esg_pref["model_name"]
-        
+
         st.markdown(f"""
 <div class="strategy-box">
     <div class="strategy-title">Your ESG model</div>
@@ -885,18 +923,20 @@ with st.sidebar:
 
         esg_threshold = 0.0
         min_esg_score = 0.0
-        st.caption("This benchmark version uses the lecturer's objective directly. ESG enters only through λ·s̄, with no extra exclusion or minimum-ESG constraints.")
-            
+        st.caption(
+            "This benchmark version uses the lecturer's objective directly. ESG enters only through λ·s̄, with no extra exclusion or minimum-ESG constraints.")
+
     else:
         # ADVANCED MODE
         st.markdown("---")
         st.markdown("### 📊 Risk Aversion Coefficient (γ)")
-        st.caption("Higher γ = more risk averse. Doubling γ approximately halves your allocation to risky assets (Audit Check 1).")
+        st.caption(
+            "Higher γ = more risk averse. Doubling γ approximately halves your allocation to risky assets (Audit Check 1).")
         gamma = st.slider(
-            "γ (gamma)", 
-            min_value=0.5, 
+            "γ (gamma)",
+            min_value=0.5,
             max_value=10.0,
-            value=4.0, 
+            value=4.0,
             step=0.5,
             help="Risk aversion parameter in the utility function U = E[R] - ½γσ² + λs̄. "
                  "Typical values: 2 (aggressive), 4 (balanced), 8 (conservative)."
@@ -906,7 +946,8 @@ with st.sidebar:
 
         st.markdown("---")
         st.markdown("### 🌱 ESG Taste Parameter (λ)")
-        st.caption("Weight on ESG in the objective function. Higher λ = stronger preference for green assets (Audit Check 2).")
+        st.caption(
+            "Weight on ESG in the objective function. Higher λ = stronger preference for green assets (Audit Check 2).")
         lambda_esg = st.slider(
             "λ (lambda)",
             min_value=0.0,
@@ -916,7 +957,7 @@ with st.sidebar:
             help="ESG taste parameter. λ=0: pure finance (maximize Sharpe). "
                  "λ≈0.3: moderate ESG tilt. λ>0.5: strong ESG preference (may sacrifice returns)."
         )
-        
+
         if lambda_esg == 0:
             esg_mode = "⚪ Finance as Usual Model"
         elif lambda_esg <= 0.33:
@@ -955,7 +996,7 @@ if mode.startswith("B"):
         name2 = st.selectbox("Asset 2", available2, key="b_company2")
     # Store for calculation
     st.session_state.mode_b_assets = (name1, name2)
-    
+
 elif mode.startswith("C"):
     st.subheader("Enter both assets manually")
     c1, c2 = st.columns(2)
@@ -972,7 +1013,7 @@ elif mode.startswith("C"):
         sd2 = st.number_input("Asset 2 volatility / SD (%)", 0.1, 100.0, 12.0, 0.1, key="c_sd2") / 100
         esg2_val = st.number_input("Asset 2 ESG score (0–100)", 0.0, 100.0, 85.0, 0.1, key="c_esg2")
     corr_input = st.number_input("Correlation between assets (ρ)", -1.0, 1.0, 0.30, 0.05, key="c_corr")
-    
+
     # Store for calculation
     st.session_state.mode_c_assets = {
         "asset1": build_asset(n1, t1, r1, sd1, esg1_val, "Manual input", "C"),
@@ -1073,11 +1114,12 @@ if not needs_build:
 # Execute optimization if we have assets and (run was clicked or we have stored results)
 if asset1 is not None and asset2 is not None and run:
     # Only optimize if run was just clicked (not using stored results)
-    result = optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr_live, rf, esg_mode, esg_threshold, min_esg_score)
+    result = optimise_portfolio(asset1, asset2, gamma, lambda_esg, corr_live, rf, esg_mode, esg_threshold,
+                                min_esg_score)
     if result.get("error"):
         st.error(result["error"])
         st.stop()
-    
+
     # Store everything in session state
     st.session_state.portfolio_built = True
     st.session_state.result = result
@@ -1130,19 +1172,20 @@ w2_tang = result["w2_tang"]
 # RESULTS DISPLAY
 # ============================================================
 st.markdown(f"## 🎯 {display_client_name}'s Optimal Portfolio")
-st.caption(f"Client: {display_client_name} · Risk profile: {risk_label} · γ={gamma}, λ={lambda_esg:.3f} · rf = {rf*100:.1f}% · ρ = {corr_live:.2f} ({corr_source})")
+st.caption(
+    f"Client: {display_client_name} · Risk profile: {risk_label} · γ={gamma}, λ={lambda_esg:.3f} · rf = {rf * 100:.1f}% · ρ = {corr_live:.2f} ({corr_source})")
 
 st.markdown(f"""
 <div class="info-box">
     <strong>{display_client_name}</strong>, {mode_explainer}<br>{data_message}<br><br>
     <strong>How the portfolio was built:</strong> First, QGreen formed the tangency portfolio from the two risky assets
-    ({w1_tang*100:.0f}% {asset1['name']} / {w2_tang*100:.0f}% {asset2['name']}) — incorporating your ESG preferences.
-    Then, based on your risk aversion (γ={gamma}), it allocated {alpha*100:.0f}% to that tangency portfolio
-    and {w_rf*100:.0f}% to the risk-free asset (rf = {rf*100:.1f}%).
+    ({w1_tang * 100:.0f}% {asset1['name']} / {w2_tang * 100:.0f}% {asset2['name']}) — incorporating your ESG preferences.
+    Then, based on your risk aversion (γ={gamma}), it allocated {alpha * 100:.0f}% to that tangency portfolio
+    and {w_rf * 100:.0f}% to the risk-free asset (rf = {rf * 100:.1f}%).
 </div>""", unsafe_allow_html=True)
 
 impact_summary = compute_impact_snapshot(asset1, asset2, w1 / (w1 + w2) if (w1 + w2) > 0 else 0.5,
-                                          w2 / (w1 + w2) if (w1 + w2) > 0 else 0.5)
+                                         w2 / (w1 + w2) if (w1 + w2) > 0 else 0.5)
 
 summary_left, summary_right = st.columns([1.05, 0.95])
 
@@ -1151,12 +1194,12 @@ with summary_left:
 <div class="metric-grid">
     <div class="metric-card">
         <div class="metric-label">Expected return</div>
-        <div class="metric-value">{ret_opt*100:.2f}%</div>
+        <div class="metric-value">{ret_opt * 100:.2f}%</div>
         <div class="metric-sub">Annualised portfolio return</div>
     </div>
     <div class="metric-card">
         <div class="metric-label">Risk (SD)</div>
-        <div class="metric-value">{sd_opt*100:.2f}%</div>
+        <div class="metric-value">{sd_opt * 100:.2f}%</div>
         <div class="metric-sub">Portfolio volatility</div>
     </div>
     <div class="metric-card">
@@ -1171,25 +1214,28 @@ with summary_left:
     </div>
 </div>""", unsafe_allow_html=True)
 
-    alloc_rows = {"Asset": [], "Ticker": [], "Weight (total)": [], "Weight (in risky)": [], "Expected Return": [], "Volatility": [], "ESG Score": []}
+    alloc_rows = {"Asset": [], "Ticker": [], "Weight (total)": [], "Weight (in risky)": [], "Expected Return": [],
+                  "Volatility": [], "ESG Score": []}
     alloc_rows["Asset"].append("Risk-Free Asset")
     alloc_rows["Ticker"].append("rf")
-    alloc_rows["Weight (total)"].append(f"{w_rf*100:.1f}%")
+    alloc_rows["Weight (total)"].append(f"{w_rf * 100:.1f}%")
     alloc_rows["Weight (in risky)"].append("—")
-    alloc_rows["Expected Return"].append(f"{rf*100:.1f}%")
+    alloc_rows["Expected Return"].append(f"{rf * 100:.1f}%")
     alloc_rows["Volatility"].append("0.0%")
     alloc_rows["ESG Score"].append("—")
     for asset, w_total, w_tang in [(asset1, w1, w1_tang), (asset2, w2, w2_tang)]:
         alloc_rows["Asset"].append(asset["name"])
         alloc_rows["Ticker"].append(asset["ticker"])
-        alloc_rows["Weight (total)"].append(f"{w_total*100:.1f}%")
-        alloc_rows["Weight (in risky)"].append(f"{w_tang*100:.1f}%")
-        alloc_rows["Expected Return"].append(f"{asset['ret']*100:.2f}%")
-        alloc_rows["Volatility"].append(f"{asset['sd']*100:.2f}%")
+        alloc_rows["Weight (total)"].append(f"{w_total * 100:.1f}%")
+        alloc_rows["Weight (in risky)"].append(f"{w_tang * 100:.1f}%")
+        alloc_rows["Expected Return"].append(f"{asset['ret'] * 100:.2f}%")
+        alloc_rows["Volatility"].append(f"{asset['sd'] * 100:.2f}%")
         alloc_rows["ESG Score"].append(f"{asset['esg']:.1f}")
     out = pd.DataFrame(alloc_rows)
-    st.markdown("<div class='asset-table-wrap'>" + out.to_html(index=False, classes="asset-table", border=0) + "</div>", unsafe_allow_html=True)
-    st.caption("'Weight (total)' reports the benchmark risky weights x. These do not need to sum to 100%; the remainder is invested in or borrowed from the risk-free asset.")
+    st.markdown("<div class='asset-table-wrap'>" + out.to_html(index=False, classes="asset-table", border=0) + "</div>",
+                unsafe_allow_html=True)
+    st.caption(
+        "'Weight (total)' reports the benchmark risky weights x. These do not need to sum to 100%; the remainder is invested in or borrowed from the risk-free asset.")
 
 with summary_right:
     labels_pie = ["Risk-Free Asset", asset1["name"], asset2["name"]]
@@ -1198,22 +1244,26 @@ with summary_right:
     fig2, ax2 = plt.subplots(figsize=(6.0, 4.1))
     fig2.patch.set_facecolor("#f4fbf5")
     wedges, texts, autotexts = ax2.pie(sizes_pie, labels=labels_pie, autopct="%1.1f%%", colors=colors_pie,
-                                        startangle=90, wedgeprops={"edgecolor": "white", "linewidth": 2.5})
+                                       startangle=90, wedgeprops={"edgecolor": "white", "linewidth": 2.5})
     for at in autotexts:
-        at.set_color("white"); at.set_fontweight("bold")
+        at.set_color("white");
+        at.set_fontweight("bold")
     ax2.set_title("Total portfolio / borrowing view", color="#123321", fontweight="bold")
     st.pyplot(fig2)
     plt.close(fig2)
 
     fig3, ax3 = plt.subplots(figsize=(6.0, 3.3))
-    fig3.patch.set_facecolor("#f4fbf5"); ax3.set_facecolor("#f4fbf5")
+    fig3.patch.set_facecolor("#f4fbf5");
+    ax3.set_facecolor("#f4fbf5")
     scores = [asset1["esg"], asset2["esg"], esg_opt]
     labels3 = [asset1["name"], asset2["name"], f"Your Portfolio ({esg_opt:.1f})"]
     bars = ax3.barh(labels3, scores, color=["#145A32", "#2E8B57", "#7BC67E"])
     for bar, val in zip(bars, scores):
         ax3.text(val + 0.8, bar.get_y() + bar.get_height() / 2, f"{val:.1f}", va="center", fontweight="bold")
-    ax3.set_xlim(0, 110); ax3.set_xlabel("ESG score")
-    ax3.set_title("ESG comparison", color="#123321", fontweight="bold"); ax3.grid(True, axis="x", alpha=0.25)
+    ax3.set_xlim(0, 110);
+    ax3.set_xlabel("ESG score")
+    ax3.set_title("ESG comparison", color="#123321", fontweight="bold");
+    ax3.grid(True, axis="x", alpha=0.25)
     st.pyplot(fig3)
     plt.close(fig3)
 
@@ -1222,11 +1272,11 @@ with alloc_col:
     st.markdown(f"""
 <div class="rec-box">
     <h4>Optimal portfolio — {display_client_name}</h4>
-    <p><strong>Tangency portfolio (risky assets):</strong> {w1_tang*100:.0f}% {asset1['name']} + {w2_tang*100:.0f}% {asset2['name']}</p>
+    <p><strong>Tangency portfolio (risky assets):</strong> {w1_tang * 100:.0f}% {asset1['name']} + {w2_tang * 100:.0f}% {asset2['name']}</p>
     <p><strong>Total risky exposure:</strong> α = {alpha:.2f} · risky mix. {'Remainder held in the risk-free asset' if w_rf >= 0 else 'Negative remainder means borrowing at the risk-free rate'}.</p>
     <ul>
-        <li>Expected return: <strong>{ret_opt*100:.2f}%</strong></li>
-        <li>Volatility (SD): <strong>{sd_opt*100:.2f}%</strong></li>
+        <li>Expected return: <strong>{ret_opt * 100:.2f}%</strong></li>
+        <li>Volatility (SD): <strong>{sd_opt * 100:.2f}%</strong></li>
         <li>Risky portfolio ESG: <strong>{esg_opt:.2f}/100</strong></li>
         <li>Total risky exposure α: <strong>{alpha:.2f}</strong></li>
         <li>Sharpe ratio: <strong>{sharpe_opt:.2f}</strong></li>
@@ -1236,34 +1286,44 @@ with alloc_col:
 </div>""", unsafe_allow_html=True)
 
 with story_col:
-    story_html = build_portfolio_narrative(display_client_name, result, asset1, asset2, esg_mode, risk_label, esg_threshold, min_esg_score)
+    story_html = build_portfolio_narrative(display_client_name, result, asset1, asset2, esg_mode, risk_label,
+                                           esg_threshold, min_esg_score)
     st.markdown(story_html, unsafe_allow_html=True)
 
 # ============================================================
 # TABS (INCLUDING MONTE CARLO WITH SESSION STATE HANDLING)
 # ============================================================
-portfolio_tab, esg_tab, impact_tab, mc_tab, method_tab = st.tabs(["📈 Portfolio Frontier", "🌱 ESG Frontier", "🌍 Impact Metrics", "🔮 Monte Carlo", "🧠 Methodology"])
+portfolio_tab, esg_tab, impact_tab, mc_tab, method_tab = st.tabs(
+    ["📈 Portfolio Frontier", "🌱 ESG Frontier", "🌍 Impact Metrics", "🔮 Monte Carlo", "🧠 Methodology"])
 
 with portfolio_tab:
     st.markdown("### Portfolio frontier & Capital Market Line")
-    st.caption("The frontier shows all risky-asset combinations. The CML connects the risk-free rate to the tangency portfolio. Your optimal portfolio lies on the CML.")
+    st.caption(
+        "The frontier shows all risky-asset combinations. The CML connects the risk-free rate to the tangency portfolio. Your optimal portfolio lies on the CML.")
     fig_pf, ax_pf = plt.subplots(figsize=(9.5, 5.5))
-    fig_pf.patch.set_facecolor("#f4fbf5"); ax_pf.set_facecolor("#f4fbf5")
+    fig_pf.patch.set_facecolor("#f4fbf5");
+    ax_pf.set_facecolor("#f4fbf5")
     sc = ax_pf.scatter(result["all_std"] * 100, result["all_ret"] * 100, c=result["all_esg"],
-                        cmap="RdYlGn", s=18, alpha=0.86, vmin=0, vmax=100)
-    cbar = plt.colorbar(sc, ax=ax_pf); cbar.set_label("ESG score")
+                       cmap="RdYlGn", s=18, alpha=0.86, vmin=0, vmax=100)
+    cbar = plt.colorbar(sc, ax=ax_pf);
+    cbar.set_label("ESG score")
     max_x = max(result["all_std"].max() * 100 * 1.4, sd_opt * 100 * 1.4)
     if sd_tang > 0:
         cml_x = np.linspace(0, max_x, 300)
         cml_y = rf * 100 + (sharpe_tang) * cml_x
         ax_pf.plot(cml_x, cml_y, color="#1b5e20", linestyle="--", lw=1.8, label="Capital Market Line")
-    ax_pf.scatter(0, rf * 100, color="#1b5e20", marker="s", s=110, zorder=5, label=f"Risk-free rate ({rf*100:.1f}%)")
-    ax_pf.scatter(sd_tang * 100, ret_tang * 100, color="#D32F2F", marker="*", s=280, zorder=5, label=f"Tangency portfolio (Sharpe={sharpe_tang:.2f})")
-    ax_pf.scatter(sd_opt * 100, ret_opt * 100, color="#43A047", marker="*", s=310, zorder=6, label=f"Your optimal portfolio (Sharpe={sharpe_opt:.2f})")
+    ax_pf.scatter(0, rf * 100, color="#1b5e20", marker="s", s=110, zorder=5, label=f"Risk-free rate ({rf * 100:.1f}%)")
+    ax_pf.scatter(sd_tang * 100, ret_tang * 100, color="#D32F2F", marker="*", s=280, zorder=5,
+                  label=f"Tangency portfolio (Sharpe={sharpe_tang:.2f})")
+    ax_pf.scatter(sd_opt * 100, ret_opt * 100, color="#43A047", marker="*", s=310, zorder=6,
+                  label=f"Your optimal portfolio (Sharpe={sharpe_opt:.2f})")
     ax_pf.scatter(asset1["sd"] * 100, asset1["ret"] * 100, color="#6A1B9A", marker="D", s=95, label=asset1["name"])
     ax_pf.scatter(asset2["sd"] * 100, asset2["ret"] * 100, color="#EF6C00", marker="D", s=95, label=asset2["name"])
-    ax_pf.set_xlabel("Risk — standard deviation (%)"); ax_pf.set_ylabel("Expected return (%)")
-    ax_pf.set_title("Portfolio Frontier & CML"); ax_pf.grid(True, alpha=0.28); ax_pf.legend(fontsize=8.5, loc="lower right")
+    ax_pf.set_xlabel("Risk — standard deviation (%)");
+    ax_pf.set_ylabel("Expected return (%)")
+    ax_pf.set_title("Portfolio Frontier & CML");
+    ax_pf.grid(True, alpha=0.28);
+    ax_pf.legend(fontsize=8.5, loc="lower right")
     st.pyplot(fig_pf)
     plt.close(fig_pf)
 
@@ -1271,33 +1331,43 @@ with esg_tab:
     st.markdown("### ESG frontier")
     st.caption("Trade-off between risky-portfolio ESG score s̄ and Sharpe ratio across all two-asset combinations.")
     fig_esg, ax_esg = plt.subplots(figsize=(9.5, 5.0))
-    fig_esg.patch.set_facecolor("#f4fbf5"); ax_esg.set_facecolor("#f4fbf5")
+    fig_esg.patch.set_facecolor("#f4fbf5");
+    ax_esg.set_facecolor("#f4fbf5")
     tang_esg = result["tang_esg"]
     ax_esg.plot(result["all_esg"], result["all_sharpe"], color="#2e7d32", lw=2.2, label="ESG frontier (risky assets)")
     ax_esg.scatter(tang_esg, sharpe_tang, marker="*", color="#D32F2F", s=280, zorder=6,
                    label=f"Tangency / optimal risky portfolio (ESG={tang_esg:.1f}, Sharpe={sharpe_tang:.2f})")
     ax_esg.axvline(tang_esg, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
     ax_esg.axhline(sharpe_tang, color="#2e7d32", linestyle=":", lw=1.4, alpha=0.75)
-    ax_esg.set_xlabel("Portfolio ESG score (risky assets)"); ax_esg.set_ylabel("Sharpe ratio")
-    ax_esg.set_title("ESG Frontier"); ax_esg.grid(True, alpha=0.28); ax_esg.legend(fontsize=9)
+    ax_esg.set_xlabel("Portfolio ESG score (risky assets)");
+    ax_esg.set_ylabel("Sharpe ratio")
+    ax_esg.set_title("ESG Frontier");
+    ax_esg.grid(True, alpha=0.28);
+    ax_esg.legend(fontsize=9)
     st.pyplot(fig_esg)
     plt.close(fig_esg)
 
 with impact_tab:
     st.markdown("### Executive impact dashboard")
     if impact_summary.get("available"):
-        cov_class = "positive" if impact_summary["coverage_weight"] >= 99 else ("neutral" if impact_summary["coverage_weight"] >= 70 else "caution")
+        cov_class = "positive" if impact_summary["coverage_weight"] >= 99 else (
+            "neutral" if impact_summary["coverage_weight"] >= 70 else "caution")
         cards = []
         if pd.notna(impact_summary.get("emissions_score_port")):
-            cards.append(f'<div class="impact-card"><div class="impact-kicker">Emissions management</div><div class="impact-value">{format_number_or_na(impact_summary["emissions_score_port"], " / 100", 1)}</div><div class="impact-detail">Weighted LSEG emissions score</div></div>')
+            cards.append(
+                f'<div class="impact-card"><div class="impact-kicker">Emissions management</div><div class="impact-value">{format_number_or_na(impact_summary["emissions_score_port"], " / 100", 1)}</div><div class="impact-detail">Weighted LSEG emissions score</div></div>')
         if pd.notna(impact_summary.get("gender_diversity_port")):
-            cards.append(f'<div class="impact-card"><div class="impact-kicker">Board diversity</div><div class="impact-value">{format_percent_or_na(impact_summary["gender_diversity_port"], 1)}</div><div class="impact-detail">Weighted board gender diversity</div></div>')
+            cards.append(
+                f'<div class="impact-card"><div class="impact-kicker">Board diversity</div><div class="impact-value">{format_percent_or_na(impact_summary["gender_diversity_port"], 1)}</div><div class="impact-detail">Weighted board gender diversity</div></div>')
         if pd.notna(impact_summary.get("emissions_trading_share")):
-            cards.append(f'<div class="impact-card"><div class="impact-kicker">Emissions trading</div><div class="impact-value">{format_percent_or_na(impact_summary["emissions_trading_share"], 0)}</div><div class="impact-detail">Portfolio weight in emissions-trading participants</div></div>')
+            cards.append(
+                f'<div class="impact-card"><div class="impact-kicker">Emissions trading</div><div class="impact-value">{format_percent_or_na(impact_summary["emissions_trading_share"], 0)}</div><div class="impact-detail">Portfolio weight in emissions-trading participants</div></div>')
         if pd.notna(impact_summary.get("biodiversity_share")):
-            cards.append(f'<div class="impact-card"><div class="impact-kicker">Biodiversity</div><div class="impact-value">{format_percent_or_na(impact_summary["biodiversity_share"], 0)}</div><div class="impact-detail">Portfolio weight with biodiversity-impact coverage</div></div>')
+            cards.append(
+                f'<div class="impact-card"><div class="impact-kicker">Biodiversity</div><div class="impact-value">{format_percent_or_na(impact_summary["biodiversity_share"], 0)}</div><div class="impact-detail">Portfolio weight with biodiversity-impact coverage</div></div>')
         if not cards:
-            cards.append('<div class="impact-card"><div class="impact-kicker">Impact data</div><div class="impact-value">Available</div><div class="impact-detail">Matched but sparse impact fields.</div></div>')
+            cards.append(
+                '<div class="impact-card"><div class="impact-kicker">Impact data</div><div class="impact-value">Available</div><div class="impact-detail">Matched but sparse impact fields.</div></div>')
         st.markdown(f"""
 <div class="impact-shell">
     <h4>Sustainability view</h4>
@@ -1311,33 +1381,35 @@ with impact_tab:
 
 with mc_tab:
     st.markdown("### 🔮 Monte Carlo Future Value Simulation")
-    st.caption("Simulates possible future paths using Geometric Brownian Motion: dS/S = μdt + σdW. Verified drift adjustment (μ - ½σ²) for log-normal returns.")
-    
+    st.caption(
+        "Simulates possible future paths using Geometric Brownian Motion: dS/S = μdt + σdW. Verified drift adjustment (μ - ½σ²) for log-normal returns.")
+
     col_mc1, col_mc2, col_mc3 = st.columns(3)
     with col_mc1:
-        initial_investment = st.number_input("Initial Investment ($)", min_value=1000, max_value=10000000, value=10000, step=1000, key="mc_initial")
+        initial_investment = st.number_input("Initial Investment ($)", min_value=1000, max_value=10000000, value=10000,
+                                             step=1000, key="mc_initial")
     with col_mc2:
         years_mc = st.slider("Investment Horizon (years)", min_value=1, max_value=30, value=10, key="mc_years")
     with col_mc3:
         n_sims = st.selectbox("Number of Simulations", options=[500, 1000, 2500, 5000], index=1, key="mc_sims")
-    
+
     # Monte Carlo using stored portfolio parameters
     np.random.seed(42)
     mu_port = ret_opt  # annualized decimal
     sigma_port = sd_opt  # annualized decimal
-    
+
     # GBM: S_t = S_0 * exp((μ - 0.5*σ²)*t + σ*W_t)
     dt = 1.0
     random_shocks = np.random.standard_normal((n_sims, years_mc))
-    
+
     # Correct drift adjustment for log-normal returns (Audit verified)
-    drift = (mu_port - 0.5 * sigma_port**2) * dt
+    drift = (mu_port - 0.5 * sigma_port ** 2) * dt
     diffusion = sigma_port * np.sqrt(dt) * random_shocks
     log_returns = drift + diffusion
-    
+
     # Cumulative product
     wealth_paths = initial_investment * np.exp(np.cumsum(log_returns, axis=1))
-    
+
     ending_values = wealth_paths[:, -1]
     mean_val = np.mean(ending_values)
     median_val = np.median(ending_values)
@@ -1346,38 +1418,42 @@ with mc_tab:
     prob_loss = np.mean(ending_values < initial_investment) * 100
     rf_final = initial_investment * ((1 + rf) ** years_mc)
     prob_beat_rf = np.mean(ending_values > rf_final) * 100
-    
+
     # Metrics display
     mc_cols = st.columns(4)
     mc_cols[0].metric("Median Ending Value", f"${median_val:,.0f}")
-    mc_cols[1].metric("5th Percentile (VaR 95%)", f"${var_5:,.0f}", delta=f"{((var_5-initial_investment)/initial_investment)*100:.1f}%", delta_color="normal")
+    mc_cols[1].metric("5th Percentile (VaR 95%)", f"${var_5:,.0f}",
+                      delta=f"{((var_5 - initial_investment) / initial_investment) * 100:.1f}%", delta_color="normal")
     mc_cols[2].metric("95th Percentile", f"${var_95:,.0f}")
-    mc_cols[3].metric("Probability of Loss", f"{prob_loss:.1f}%", delta=f"{100-prob_loss:.1f}% chance of gain", delta_color="off" if prob_loss < 50 else "inverse")
-    
+    mc_cols[3].metric("Probability of Loss", f"{prob_loss:.1f}%", delta=f"{100 - prob_loss:.1f}% chance of gain",
+                      delta_color="off" if prob_loss < 50 else "inverse")
+
     # Histogram
     fig_mc, ax_mc = plt.subplots(figsize=(10, 5))
     fig_mc.patch.set_facecolor("#f4fbf5")
     ax_mc.set_facecolor("#f4fbf5")
-    
+
     # Use log bins if range is very large
     if median_val / initial_investment > 10 or (var_5 > 0 and initial_investment / var_5 > 10):
         bins = np.logspace(np.log10(max(ending_values.min(), 100)), np.log10(ending_values.max()), 50)
         ax_mc.set_xscale('log')
     else:
         bins = 50
-        
+
     ax_mc.hist(ending_values, bins=bins, alpha=0.75, color='#2E7D32', edgecolor='white', density=True)
     ax_mc.axvline(median_val, color='#D32F2F', linestyle='--', linewidth=2.5, label=f'Median: ${median_val:,.0f}')
     ax_mc.axvline(var_5, color='#F9A825', linestyle='--', linewidth=2.5, label=f'5th %ile (VaR): ${var_5:,.0f}')
-    ax_mc.axvline(initial_investment, color='#1565C0', linestyle='-', linewidth=2, label=f'Initial: ${initial_investment:,.0f}')
+    ax_mc.axvline(initial_investment, color='#1565C0', linestyle='-', linewidth=2,
+                  label=f'Initial: ${initial_investment:,.0f}')
     ax_mc.set_xlabel("Portfolio Value ($)", fontsize=11)
     ax_mc.set_ylabel("Probability Density", fontsize=11)
-    ax_mc.set_title(f"Distribution of Portfolio Value after {years_mc} Years ({n_sims} simulations)", fontsize=12, fontweight='bold')
+    ax_mc.set_title(f"Distribution of Portfolio Value after {years_mc} Years ({n_sims} simulations)", fontsize=12,
+                    fontweight='bold')
     ax_mc.legend()
     ax_mc.grid(True, alpha=0.3)
     st.pyplot(fig_mc)
     plt.close(fig_mc)
-    
+
     # Sample paths (show only 100 for performance)
     fig_path, ax_path = plt.subplots(figsize=(10, 5))
     fig_path.patch.set_facecolor("#f4fbf5")
@@ -1386,7 +1462,7 @@ with mc_tab:
     years_axis = np.arange(years_mc + 1)
     # Include starting point
     wealth_display = np.column_stack([np.full(n_display, initial_investment), wealth_paths[:n_display]])
-    
+
     for i in range(n_display):
         ax_path.plot(years_axis, wealth_display[i], alpha=0.3, color='#2E7D32', linewidth=0.6)
     ax_path.axhline(initial_investment, color='#1565C0', linestyle='--', alpha=0.8, label='Initial investment')
@@ -1395,17 +1471,18 @@ with mc_tab:
     ax_path.set_title(f"Sample Portfolio Paths ({n_display} random simulations)", fontsize=12, fontweight='bold')
     ax_path.grid(True, alpha=0.3)
     # Format y-axis as currency
-    ax_path.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}k' if x < 1000000 else f'${x/1000000:.1f}M'))
+    ax_path.yaxis.set_major_formatter(
+        plt.FuncFormatter(lambda x, p: f'${x / 1000:.0f}k' if x < 1000000 else f'${x / 1000000:.1f}M'))
     st.pyplot(fig_path)
     plt.close(fig_path)
-    
+
     # Explanation
-    total_return_pct = ((median_val / initial_investment) ** (1/years_mc) - 1) * 100 if years_mc > 0 else 0
-    
+    total_return_pct = ((median_val / initial_investment) ** (1 / years_mc) - 1) * 100 if years_mc > 0 else 0
+
     st.markdown(f"""
 <div class="soft-box">
     <h4>Understanding the Simulation</h4>
-    <p>Based on your optimal portfolio's expected return of <strong>{ret_opt*100:.2f}%</strong> and volatility of <strong>{sd_opt*100:.2f}%</strong>:</p>
+    <p>Based on your optimal portfolio's expected return of <strong>{ret_opt * 100:.2f}%</strong> and volatility of <strong>{sd_opt * 100:.2f}%</strong>:</p>
     <ul>
         <li><strong>Value at Risk (5th percentile):</strong> There is a 5% chance your portfolio will be worth less than <strong>${var_5:,.0f}</strong> after {years_mc} years.</li>
         <li><strong>Implied median growth rate:</strong> <strong>{total_return_pct:.1f}%</strong> per year (geometric).</li>
@@ -1426,7 +1503,7 @@ with method_tab:
     max <strong>x'μ - (γ/2)x'Σx + λ·s̄</strong>
     </p>
     <p>where <strong>s̄ = (x₁s₁ + x₂s₂)/(x₁ + x₂)</strong> is the portfolio-average ESG score (risky assets only).</p>
-    
+
     <p><strong>Stage 1 — ESG-constrained tangency portfolio:</strong></p>
     <ul>
         <li>Find mix w₁, w₂ across risky assets maximizing <strong>μₚ²/(2γσₚ²) + λ·sₚ</strong> (equivalent to max SR²/2γ + λs̄)</li>
@@ -1444,7 +1521,7 @@ with method_tab:
         <li><strong>Check 3 (Symmetry):</strong> Identical assets with λ=0 produce equal weights (w₁=w₂=0.5).</li>
         <li><strong>Check 4 (Corners):</strong> High λ can produce corner solutions in the greener risky asset.</li>
     </ul>
-    <p><strong>Your current parameters:</strong> γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf*100:.1f}%</p>
+    <p><strong>Your current parameters:</strong> γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf * 100:.1f}%</p>
 </div>
 <div class="soft-box">
     <h4>ESG Constraints Explained</h4>
@@ -1458,3 +1535,4 @@ st.markdown("""
 <div class="disclaimer">
 This tool is for educational purposes and should not be treated as personal financial advice.
 </div>""", unsafe_allow_html=True)
+
