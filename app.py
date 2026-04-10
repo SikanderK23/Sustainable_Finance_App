@@ -544,6 +544,113 @@ def get_impact_profile(ticker, esg_hint=None, name_hint=None):
     return choose_best(prefix, "prefix")
 
 
+
+
+@st.cache_data(show_spinner=False)
+def fetch_returns_and_corr(ticker1: str, ticker2: str):
+    """Fetch annualised return, volatility, and pairwise correlation from Yahoo Finance."""
+    if yf is None:
+        return None
+    try:
+        tickers = [ticker1, ticker2]
+        hist = yf.download(tickers, period="3y", interval="1d", auto_adjust=True, progress=False)
+        if hist is None or hist.empty:
+            return None
+        if isinstance(hist.columns, pd.MultiIndex):
+            close = hist["Close"]
+        else:
+            close = hist[["Close"]].copy()
+            close.columns = tickers
+        close = close.dropna(how="all")
+        if close.shape[0] < 60:
+            return None
+        rets = close.pct_change().dropna()
+        stats = {}
+        for t in tickers:
+            if t not in rets.columns:
+                return None
+            s = rets[t].dropna()
+            if len(s) < 60:
+                return None
+            ann_ret = float(s.mean() * 252)
+            ann_vol = float(s.std() * np.sqrt(252))
+            if not np.isfinite(ann_ret) or not np.isfinite(ann_vol) or ann_vol <= 0:
+                return None
+            stats[t] = {"return": ann_ret, "sd": ann_vol}
+        aligned = rets[[ticker1, ticker2]].dropna()
+        corr_val = float(aligned.corr().iloc[0, 1]) if len(aligned) >= 30 else 0.30
+        if not np.isfinite(corr_val):
+            corr_val = 0.30
+        return {"stats": stats, "corr": corr_val, "source": "Yahoo Finance (3yr)"}
+    except Exception:
+        return None
+
+
+@st.cache_data(show_spinner=False)
+def fetch_single_market_stats(ticker: str):
+    if yf is None or not ticker:
+        return None
+    try:
+        hist = yf.download(ticker, period="3y", interval="1d", auto_adjust=True, progress=False)
+        if hist is None or hist.empty or "Close" not in hist.columns:
+            return None
+        close = hist["Close"].dropna()
+        if len(close) < 60:
+            return None
+        rets = close.pct_change().dropna()
+        ann_return = float(rets.mean() * 252)
+        ann_vol = float(rets.std() * np.sqrt(252))
+        if not np.isfinite(ann_return) or not np.isfinite(ann_vol) or ann_vol <= 0:
+            return None
+        return {"return": ann_return, "sd": ann_vol}
+    except Exception:
+        return None
+
+
+def estimate_asset_characteristics(esg_score: float, style: str):
+    e = float(esg_score)
+    if style == "Conservative 🛡️":
+        ret = 0.05 + 0.00025 * e
+        sd = 0.10 + 0.00020 * (100 - e)
+    elif style == "Balanced ⚖️":
+        ret = 0.07 + 0.00022 * e
+        sd = 0.14 + 0.00022 * (100 - e)
+    else:
+        ret = 0.09 + 0.00018 * e
+        sd = 0.18 + 0.00025 * (100 - e)
+    return round(ret, 4), round(sd, 4)
+
+
+def build_asset(name, ticker, ret, sd, esg, source, mode_label):
+    return {
+        "name": name,
+        "ticker": ticker,
+        "ret": float(ret),
+        "sd": float(sd),
+        "esg": float(esg),
+        "source": source,
+        "mode": mode_label,
+        "impact_profile": get_impact_profile(ticker, esg, name),
+        "impact_available": bool(get_impact_profile(ticker, esg, name)),
+    }
+
+
+def get_asset_from_row(row, style: str, mode_label: str, market_override=None):
+    if market_override:
+        ret = market_override["return"]
+        sd = market_override["sd"]
+        source = "Yahoo Finance (3yr)"
+    else:
+        mkt = fetch_single_market_stats(row["ticker"])
+        if mkt:
+            ret, sd, source = mkt["return"], mkt["sd"], "Yahoo Finance (3yr)"
+        else:
+            ret, sd = estimate_asset_characteristics(row["esg_0_100"], style)
+            source = "QGreen estimate"
+    raw_name = str(row.get("comname", row["ticker"])).strip()
+    raw_ticker = str(row["ticker"]).strip().upper()
+    display_name = raw_ticker if raw_name.upper() == raw_ticker else raw_name.title()
+    return build_asset(display_name, raw_ticker, ret, sd, row["esg_0_100"], source, mode_label)
 def weighted_metric(values, weights):
     arr = np.array(values, dtype=float)
     w = np.array(weights, dtype=float)
