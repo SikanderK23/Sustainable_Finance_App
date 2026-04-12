@@ -1243,12 +1243,52 @@ with summary_right:
     colors_pie = ["#B0BEC5", "#2E7D32", "#66BB6A"]
     fig2, ax2 = plt.subplots(figsize=(6.0, 4.1))
     fig2.patch.set_facecolor("#f4fbf5")
-    wedges, texts, autotexts = ax2.pie(sizes_pie, labels=labels_pie, autopct="%1.1f%%", colors=colors_pie,
-                                       startangle=90, wedgeprops={"edgecolor": "white", "linewidth": 2.5})
-    for at in autotexts:
-        at.set_color("white");
-        at.set_fontweight("bold")
-    ax2.set_title("Total portfolio / borrowing view", color="#123321", fontweight="bold")
+    
+    # Create pie with smaller radius to leave room for external labels
+    wedges, texts = ax2.pie(sizes_pie, labels=None, colors=colors_pie,
+                           startangle=90, radius=0.65,
+                           wedgeprops={"edgecolor": "white", "linewidth": 2.5})
+    
+    # Add professional leader lines and external labels
+    for wedge, label, size in zip(wedges, labels_pie, sizes_pie):
+        # Angle to the middle of the wedge
+        ang = (wedge.theta2 - wedge.theta1) / 2. + wedge.theta1
+        
+        # Edge of the slice (radius 0.65)
+        x = 0.65 * np.cos(np.deg2rad(ang))
+        y = 0.65 * np.sin(np.deg2rad(ang))
+        
+        # Text position further out (radius 1.2)
+        x_text = 1.2 * np.cos(np.deg2rad(ang))
+        y_text = 1.2 * np.sin(np.deg2rad(ang))
+        
+        # Left/right alignment based on position
+        ha = "right" if x < 0 else "left"
+        
+        # Bent leader line (angle connection style)
+        ax2.annotate(
+            f"{label}\n{size*100:.1f}%",
+            xy=(x, y),
+            xytext=(x_text, y_text),
+            horizontalalignment=ha,
+            verticalalignment="center",
+            arrowprops=dict(
+                arrowstyle="-",              # Simple line (no arrow head)
+                color="#5f6368",             # Professional gray
+                lw=0.9,
+                connectionstyle=f"angle,angleA=0,angleB={ang}"  # Bent line
+            ),
+            fontsize=9,
+            color="#1b5e20",                 # Match app theme
+            fontweight="600",
+            bbox=dict(boxstyle="round,pad=0.35", facecolor="white", 
+                     edgecolor="#e8f5e9", alpha=0.95)  # Subtle green-tinted box
+        )
+    
+    # Ensure labels fit in the plot area
+    ax2.set_xlim(-1.4, 1.4)
+    ax2.set_ylim(-1.4, 1.4)
+    ax2.set_title("Total portfolio / borrowing view", color="#123321", fontweight="bold", pad=20)
     st.pyplot(fig2)
     plt.close(fig2)
 
