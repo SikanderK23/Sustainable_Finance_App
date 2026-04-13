@@ -803,9 +803,9 @@ if "portfolio_built" not in st.session_state:
     st.session_state.corr_source = None
 
 mode_options = [
-    "A) Let QGreen choose for me",
+    "A) I enter everything manually",
     "B) I choose my assets",
-    "C) I enter everything manually",
+    "C) Let QGreen choose for me",
 ]
 if "mode" not in st.session_state:
     st.session_state["mode"] = mode_options[0]
@@ -827,12 +827,12 @@ st.markdown("""
 
 # ── CLICKABLE MODE CARDS ──────────────────────────────────────────────────────
 card_specs = [
-    ("A) Auto Portfolio", "QGreen selects two companies for you based on your risk profile and ESG preferences.",
-     "Automated", mode_options[0]),
+    ("A) Full Manual", "Enter return, risk, ESG scores and correlation directly for complete control.", "Full control",
+     mode_options[0]),
     ("B) Choose Your Assets", "You pick two assets by ticker and QGreen handles the full optimisation.",
      "Directed choice", mode_options[1]),
-    ("C) Full Manual", "Enter return, risk, ESG scores and correlation directly for complete control.", "Full control",
-     mode_options[2]),
+    ("C) Auto Portfolio", "QGreen selects two companies for you based on your risk profile and ESG preferences.",
+     "Automated", mode_options[2]),
 ]
 m1, m2, m3 = st.columns(3)
 for col, (title, desc, badge, mode_value) in zip((m1, m2, m3), card_specs):
@@ -997,7 +997,7 @@ if mode.startswith("B"):
     # Store for calculation
     st.session_state.mode_b_assets = (name1, name2)
 
-elif mode.startswith("C"):
+elif mode.startswith("A"):
     st.subheader("Enter both assets manually")
     c1, c2 = st.columns(2)
     with c1:
@@ -1044,7 +1044,7 @@ if run:
     st.session_state.rf = rf
     st.session_state.use_quiz = use_quiz
 
-if mode.startswith("A") and needs_build:
+if mode.startswith("C") and needs_build:
     mode_explainer = "QGreen selected two companies based on your ESG preferences and risk profile."
     if len(esg_df) >= 2:
         a1_row, a2_row = pick_auto_pair(esg_df, risk_label, lambda_esg, esg_mode, esg_threshold, min_esg_score)
@@ -1086,7 +1086,7 @@ elif mode.startswith("B") and needs_build:
             data_message = "Live market data unavailable — using QGreen estimates with a default correlation of 0.30."
         mode_explainer = "You picked two assets and QGreen fetched live data and computed the optimal portfolio."
 
-elif mode.startswith("C") and needs_build:
+elif mode.startswith("A") and needs_build:
     if "mode_c_assets" in st.session_state:
         asset1 = st.session_state.mode_c_assets["asset1"]
         asset2 = st.session_state.mode_c_assets["asset2"]
@@ -1102,7 +1102,7 @@ if not needs_build:
     <h4>Selected mode: {mode}</h4>
     <p><strong>Input Method:</strong> {'Guided Quiz' if use_quiz else 'Advanced (Direct Parameters)'}</p>
     <p><strong>Client:</strong> {display_client_name}</p>
-    <p>{'Configure your preferences in the sidebar, then click Build my portfolio.' if mode.startswith('A') else 'Set your preferences in the sidebar, configure the assets above, then click Build my portfolio.'}</p>
+    <p>{'Configure your preferences in the sidebar, then click Build my portfolio.' if mode.startswith('C') else 'Set your preferences in the sidebar, configure the assets above, then click Build my portfolio.'}</p>
     <ul>
         <li><strong>Step 1:</strong> Choose your input method (Quiz or Advanced).</li>
         <li><strong>Step 2:</strong> Select assets or let QGreen choose.</li>
@@ -1243,52 +1243,12 @@ with summary_right:
     colors_pie = ["#B0BEC5", "#2E7D32", "#66BB6A"]
     fig2, ax2 = plt.subplots(figsize=(6.0, 4.1))
     fig2.patch.set_facecolor("#f4fbf5")
-    
-    # Create pie with smaller radius to leave room for external labels
-    wedges, texts = ax2.pie(sizes_pie, labels=None, colors=colors_pie,
-                           startangle=90, radius=0.65,
-                           wedgeprops={"edgecolor": "white", "linewidth": 2.5})
-    
-    # Add professional leader lines and external labels
-    for wedge, label, size in zip(wedges, labels_pie, sizes_pie):
-        # Angle to the middle of the wedge
-        ang = (wedge.theta2 - wedge.theta1) / 2. + wedge.theta1
-        
-        # Edge of the slice (radius 0.65)
-        x = 0.65 * np.cos(np.deg2rad(ang))
-        y = 0.65 * np.sin(np.deg2rad(ang))
-        
-        # Text position further out (radius 1.2)
-        x_text = 1.2 * np.cos(np.deg2rad(ang))
-        y_text = 1.2 * np.sin(np.deg2rad(ang))
-        
-        # Left/right alignment based on position
-        ha = "right" if x < 0 else "left"
-        
-        # Bent leader line (angle connection style)
-        ax2.annotate(
-            f"{label}\n{size*100:.1f}%",
-            xy=(x, y),
-            xytext=(x_text, y_text),
-            horizontalalignment=ha,
-            verticalalignment="center",
-            arrowprops=dict(
-                arrowstyle="-",              # Simple line (no arrow head)
-                color="#5f6368",             # Professional gray
-                lw=0.9,
-                connectionstyle=f"angle,angleA=0,angleB={ang}"  # Bent line
-            ),
-            fontsize=9,
-            color="#1b5e20",                 # Match app theme
-            fontweight="600",
-            bbox=dict(boxstyle="round,pad=0.35", facecolor="white", 
-                     edgecolor="#e8f5e9", alpha=0.95)  # Subtle green-tinted box
-        )
-    
-    # Ensure labels fit in the plot area
-    ax2.set_xlim(-1.4, 1.4)
-    ax2.set_ylim(-1.4, 1.4)
-    ax2.set_title("Total portfolio / borrowing view", color="#123321", fontweight="bold", pad=20)
+    wedges, texts, autotexts = ax2.pie(sizes_pie, labels=labels_pie, autopct="%1.1f%%", colors=colors_pie,
+                                       startangle=90, wedgeprops={"edgecolor": "white", "linewidth": 2.5})
+    for at in autotexts:
+        at.set_color("white");
+        at.set_fontweight("bold")
+    ax2.set_title("Total portfolio / borrowing view", color="#123321", fontweight="bold")
     st.pyplot(fig2)
     plt.close(fig2)
 
@@ -1424,19 +1384,6 @@ with mc_tab:
     st.caption(
         "Simulates possible future paths using Geometric Brownian Motion: dS/S = μdt + σdW. Verified drift adjustment (μ - ½σ²) for log-normal returns.")
 
-    # ── Sanity check warning ──────────────────────────────────────────────────
-    HIGH_RETURN_THRESHOLD = 0.25
-    return_is_suspect = ret_opt > HIGH_RETURN_THRESHOLD
-    if return_is_suspect:
-        st.warning(
-            f"⚠️ **High return estimate detected** — your portfolio's modelled expected return is "
-            f"**{ret_opt*100:.1f}%**, which is unusually high. This is almost certainly because "
-            f"Yahoo Finance's trailing 3-year return for one or both assets captured an exceptional "
-            f"period unlikely to repeat. A 3-year window is too short to estimate a reliable "
-            f"forward-looking expected return. **Override the return below before drawing conclusions.**"
-        )
-
-    # ── Simulation inputs ─────────────────────────────────────────────────────
     col_mc1, col_mc2, col_mc3 = st.columns(3)
     with col_mc1:
         initial_investment = st.number_input("Initial Investment ($)", min_value=1000, max_value=10000000, value=10000,
@@ -1446,46 +1393,10 @@ with mc_tab:
     with col_mc3:
         n_sims = st.selectbox("Number of Simulations", options=[500, 1000, 2500, 5000], index=1, key="mc_sims")
 
-    # ── Optional parameter override ───────────────────────────────────────────
-    with st.expander(
-        "Override simulation parameters" + (" — recommended given high return estimate above" if return_is_suspect else ""),
-        expanded=return_is_suspect,
-    ):
-        st.markdown(
-            "The simulation defaults to your portfolio's modelled return and volatility from Yahoo Finance. "
-            "Override these if you think the historical window is unrepresentative. "
-            "Reasonable long-run nominal equity returns are typically **8–12%**; volatility **15–25%**."
-        )
-        ov_col1, ov_col2 = st.columns(2)
-        with ov_col1:
-            mu_override_pct = st.number_input(
-                "Expected annual return for simulation (%)",
-                min_value=-30.0, max_value=100.0,
-                value=round(ret_opt * 100, 2),
-                step=0.5, key="mc_mu_override",
-                help=f"Modelled value: {ret_opt*100:.2f}%. Change this to stress-test the simulation.",
-            )
-        with ov_col2:
-            sigma_override_pct = st.number_input(
-                "Annual volatility / SD for simulation (%)",
-                min_value=1.0, max_value=100.0,
-                value=round(sd_opt * 100, 2),
-                step=0.5, key="mc_sigma_override",
-                help=f"Modelled value: {sd_opt*100:.2f}%. Typical equity range: 15–25%.",
-            )
-        mu_port = mu_override_pct / 100
-        sigma_port = sigma_override_pct / 100
-        using_override = abs(mu_port - ret_opt) > 0.001 or abs(sigma_port - sd_opt) > 0.001
-        if using_override:
-            st.info(
-                f"Simulation is using your override: **μ = {mu_port*100:.2f}%**, "
-                f"**σ = {sigma_port*100:.2f}%** (modelled: {ret_opt*100:.2f}%, {sd_opt*100:.2f}%)."
-            )
-        else:
-            st.caption(f"Using modelled values: μ = {mu_port*100:.2f}%, σ = {sigma_port*100:.2f}%.")
-
-    # Monte Carlo using (possibly overridden) parameters
+    # Monte Carlo using stored portfolio parameters
     np.random.seed(42)
+    mu_port = ret_opt  # annualized decimal
+    sigma_port = sd_opt  # annualized decimal
 
     # GBM: S_t = S_0 * exp((μ - 0.5*σ²)*t + σ*W_t)
     dt = 1.0
