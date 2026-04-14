@@ -20,6 +20,33 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
+def close_sidebar_on_mobile():
+    st.markdown(
+        """
+        <script>
+        const closeSidebarIfMobile = () => {
+            const isMobile = window.innerWidth <= 768;
+            if (!isMobile) return;
+
+            const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+            const collapseBtn = window.parent.document.querySelector('[data-testid="stSidebarCollapseButton"]');
+
+            if (sidebar && collapseBtn) {
+                const isExpanded = window.getComputedStyle(sidebar).transform === "none" ||
+                                   sidebar.getAttribute("aria-expanded") === "true";
+                if (isExpanded) {
+                    collapseBtn.click();
+                }
+            }
+        };
+
+        setTimeout(closeSidebarIfMobile, 200);
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
+
 # ============================================================
 # CUSTOM CSS (unchanged)
 # ============================================================
@@ -1119,6 +1146,8 @@ if asset1 is not None and asset2 is not None and run:
     if result.get("error"):
         st.error(result["error"])
         st.stop()
+
+        close_sidebar_on_mobile()
 
     # Store everything in session state
     st.session_state.portfolio_built = True
