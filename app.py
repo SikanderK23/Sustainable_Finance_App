@@ -26,15 +26,14 @@ def close_sidebar_on_mobile():
         <script>
         (function () {
             const isMobile = window.innerWidth <= 768;
-            if (!isMobile) return;
 
-            function tryClose() {
-                const doc = window.parent.document;
-
+            function clickIfFound(doc) {
                 const selectors = [
                     '[data-testid="stSidebarCollapseButton"]',
+                    'button[aria-label*="Close sidebar" i]',
+                    'button[aria-label*="Collapse sidebar" i]',
                     'button[aria-label*="sidebar" i]',
-                    'button[title*="sidebar" i]'
+                    'button[kind="header"]'
                 ];
 
                 for (const selector of selectors) {
@@ -47,14 +46,41 @@ def close_sidebar_on_mobile():
                 return false;
             }
 
-            let attempts = 0;
+            function scrollToResults(doc) {
+                const el = doc.getElementById('results-top');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    return true;
+                }
+                return false;
+            }
+
+            function run() {
+                const docs = [];
+                docs.push(document);
+                if (window.parent && window.parent.document) {
+                    docs.push(window.parent.document);
+                }
+
+                if (isMobile) {
+                    for (const d of docs) {
+                        try { clickIfFound(d); } catch (e) {}
+                    }
+                }
+
+                for (const d of docs) {
+                    try { scrollToResults(d); } catch (e) {}
+                }
+            }
+
+            let tries = 0;
             const interval = setInterval(() => {
-                attempts += 1;
-                const done = tryClose();
-                if (done || attempts > 20) {
+                tries += 1;
+                run();
+                if (tries >= 25) {
                     clearInterval(interval);
                 }
-            }, 150);
+            }, 160);
         })();
         </script>
         """,
@@ -1215,6 +1241,7 @@ w2_tang = result["w2_tang"]
 # ============================================================
 # RESULTS DISPLAY
 # ============================================================
+st.markdown('<div id="results-top"></div>', unsafe_allow_html=True)
 st.markdown(f"## 🎯 {display_client_name}'s Optimal Portfolio")
 st.caption(
     f"Client: {display_client_name} · Risk profile: {risk_label} · γ={gamma}, λ={lambda_esg:.3f} · rf = {rf * 100:.1f}% · ρ = {corr_live:.2f} ({corr_source})")
