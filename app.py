@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from pathlib import Path
 from textwrap import dedent
+
 try:
     import yfinance as yf
 except Exception:
@@ -17,76 +18,8 @@ st.set_page_config(
     page_title="QGreen — Sustainable Portfolio Advisor",
     page_icon="🌿",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"
 )
-
-def close_sidebar_on_mobile():
-    components.html(
-        """
-        <script>
-        (function () {
-            const isMobile = window.innerWidth <= 768;
-
-            function clickIfFound(doc) {
-                const selectors = [
-                    '[data-testid="stSidebarCollapseButton"]',
-                    'button[aria-label*="Close sidebar" i]',
-                    'button[aria-label*="Collapse sidebar" i]',
-                    'button[aria-label*="sidebar" i]',
-                    'button[kind="header"]'
-                ];
-
-                for (const selector of selectors) {
-                    const btn = doc.querySelector(selector);
-                    if (btn) {
-                        btn.click();
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            function scrollToResults(doc) {
-                const el = doc.getElementById('results-top');
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    return true;
-                }
-                return false;
-            }
-
-            function run() {
-                const docs = [];
-                docs.push(document);
-                if (window.parent && window.parent.document) {
-                    docs.push(window.parent.document);
-                }
-
-                if (isMobile) {
-                    for (const d of docs) {
-                        try { clickIfFound(d); } catch (e) {}
-                    }
-                }
-
-                for (const d of docs) {
-                    try { scrollToResults(d); } catch (e) {}
-                }
-            }
-
-            let tries = 0;
-            const interval = setInterval(() => {
-                tries += 1;
-                run();
-                if (tries >= 25) {
-                    clearInterval(interval);
-                }
-            }, 160);
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
 
 # ============================================================
 # CUSTOM CSS (unchanged)
@@ -224,6 +157,38 @@ st.markdown("""
     @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0px); } }
     @keyframes pulseGlow { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-1px); } }
     @media (max-width: 1100px) { .metric-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); } .impact-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); } }
+
+    /* ── MOBILE RESPONSIVE ─────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+        /* Stack ALL Streamlit column blocks vertically */
+        [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 0.5rem !important; }
+        [data-testid="column"] { min-width: 100% !important; flex: 1 1 100% !important; width: 100% !important; }
+        /* Hero — smaller headline, tighter padding */
+        .hero { padding: 1.4rem 1.1rem 1.2rem 1.1rem !important; }
+        .hero h1 { font-size: 2rem !important; }
+        .hero p { font-size: 0.9rem !important; }
+        /* Mode cards — auto height when stacked */
+        .glass-card { min-height: auto !important; height: auto !important; padding: 1rem !important; }
+        /* Asset allocation table — horizontal scroll on narrow screens */
+        .asset-table-wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; max-width: calc(100vw - 2rem) !important; }
+        .asset-table { min-width: 480px; font-size: 0.8rem !important; }
+        .asset-table thead th, .asset-table tbody td { padding: 0.55rem 0.6rem !important; }
+        /* Tabs — scrollable horizontally, no wrap */
+        .stTabs [data-baseweb="tab-list"] { width: 100% !important; overflow-x: auto !important; flex-wrap: nowrap !important; -webkit-overflow-scrolling: touch !important; border-radius: 12px !important; scrollbar-width: none !important; }
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none !important; }
+        .stTabs [data-baseweb="tab"] { white-space: nowrap !important; padding: 0.45rem 0.8rem !important; font-size: 0.82rem !important; }
+        /* Metric & impact values — fluid sizing */
+        .metric-value { font-size: clamp(1.1rem, 4.5vw, 1.4rem) !important; }
+        .impact-value { font-size: clamp(1rem, 4vw, 1.3rem) !important; }
+        /* Content boxes — tighter padding */
+        .why-box, .rec-box, .soft-box, .note-box, .info-box, .impact-shell, .strategy-box { padding: 0.85rem 0.9rem !important; }
+        /* Status pills */
+        .status-pill { font-size: 0.8rem !important; padding: 0.28rem 0.6rem !important; }
+        /* Sidebar full width when open */
+        section[data-testid="stSidebar"] { min-width: 85vw !important; }
+        /* Buttons full width for easy tapping */
+        .stButton > button { width: 100% !important; }
+    }
 
     html, body, [data-testid="stAppViewContainer"], [data-testid="stMainBlockContainer"] { color-scheme: light !important; }
     div[data-baseweb="select"] * { color: #132218 !important; }
@@ -1188,8 +1153,6 @@ if asset1 is not None and asset2 is not None and run:
         st.error(result["error"])
         st.stop()
 
-        close_sidebar_on_mobile()
-
     # Store everything in session state
     st.session_state.portfolio_built = True
     st.session_state.result = result
@@ -1241,7 +1204,56 @@ w2_tang = result["w2_tang"]
 # ============================================================
 # RESULTS DISPLAY
 # ============================================================
-st.markdown('<div id="results-top"></div>', unsafe_allow_html=True)
+# ── MOBILE: auto-collapse sidebar & scroll to portfolio after fresh build ──
+if run:
+    components.html("""
+<script>
+(function () {
+    var doc = window.parent.document;
+    var isMobile = window.parent.innerWidth <= 768;
+
+    function collapseAndScroll() {
+        // 1. Collapse the sidebar (try several known Streamlit selectors)
+        if (isMobile) {
+            var btn =
+                doc.querySelector('[data-testid="stSidebarCollapseButton"]') ||
+                doc.querySelector('button[aria-label="Close sidebar"]') ||
+                doc.querySelector('button[aria-label="collapse sidebar"]');
+            if (!btn) {
+                // Fallback: first button inside the sidebar header area
+                var sidebar = doc.querySelector('section[data-testid="stSidebar"]');
+                if (sidebar) btn = sidebar.querySelector('button');
+            }
+            if (btn) btn.click();
+        }
+
+        // 2. Scroll the main content pane to the #portfolio-anchor element
+        setTimeout(function () {
+            var anchor =
+                doc.getElementById('portfolio-anchor') ||
+                doc.querySelector('[data-testid="stMainScrollingContainer"]');
+            if (anchor) {
+                anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+                // Final fallback: scroll the main scrollable container to top
+                var scroller =
+                    doc.querySelector('[data-testid="stMainScrollingContainer"]') ||
+                    doc.querySelector('section.main') ||
+                    doc.querySelector('main');
+                if (scroller) scroller.scrollTop = 0;
+            }
+        }, isMobile ? 600 : 200);
+    }
+
+    // Give Streamlit time to re-render before acting
+    setTimeout(collapseAndScroll, 350);
+})();
+</script>
+""", height=0)
+
+# Anchor that the JS scrolls to
+st.markdown('<div id="portfolio-anchor"></div>', unsafe_allow_html=True)
+
 st.markdown(f"## 🎯 {display_client_name}'s Optimal Portfolio")
 st.caption(
     f"Client: {display_client_name} · Risk profile: {risk_label} · γ={gamma}, λ={lambda_esg:.3f} · rf = {rf * 100:.1f}% · ρ = {corr_live:.2f} ({corr_source})")
@@ -1566,25 +1578,43 @@ with mc_tab:
 
 with method_tab:
     st.markdown("### How QGreen works")
-    st.markdown("#### Two-stage portfolio construction (Pedersen et al. 2021)")
-    st.markdown("QGreen maximizes the ESG-augmented mean-variance objective:")
-    st.code("max  x'μ − (γ/2)x'Σx + λ·s̄", language=None)
-    st.markdown("where **s̄ = (x₁s₁ + x₂s₂)/(x₁ + x₂)** is the portfolio-average ESG score (risky assets only).")
-    st.markdown("**Stage 1 — ESG-constrained tangency portfolio:**")
-    st.markdown("""
-- Find mix w₁, w₂ across risky assets maximizing **μₚ²/(2γσₚ²) + λ·sₚ** (equivalent to max SR²/2γ + λs̄)
-- This is the optimal risky composition before scaling by total risky exposure α
-""")
-    st.markdown("**Stage 2 — Risk-free allocation:**")
     st.markdown(f"""
-- Optimal risky exposure: **α = (μₚ − r_f)/(γ·σₚ²)**
-- Final risky weights are x₁ = α·w₁ and x₂ = α·w₂. The remainder 1−x'1 is invested in or borrowed from the risk-free asset.
+<div class="soft-box">
+    <h4>Two-stage portfolio construction (Pedersen et al. 2021)</h4>
+    <p>QGreen maximizes the ESG-augmented mean-variance objective:</p>
+    <p style="font-family:monospace;background:rgba(27,94,32,0.08);padding:0.5rem;border-radius:8px;">
+    max <strong>x'μ - (γ/2)x'Σx + λ·s̄</strong>
+    </p>
+    <p>where <strong>s̄ = (x₁s₁ + x₂s₂)/(x₁ + x₂)</strong> is the portfolio-average ESG score (risky assets only).</p>
 
-**Your current parameters:** γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf * 100:.1f}%
-""")
-    st.markdown("---")
-    st.markdown("#### ESG Constraints Explained")
-    st.markdown("""
-- **Exclusion Threshold:** Minimum ESG score for individual assets to be considered (removes "sin stocks").
-- **Portfolio Minimum (s̄):** Hard floor on the weighted-average ESG of the risky portfolio. Enforced via: w₁s₁ + w₂s₂ ≥ s̄_min.
-""")
+    <p><strong>Stage 1 — ESG-constrained tangency portfolio:</strong></p>
+    <ul>
+        <li>Find mix w₁, w₂ across risky assets maximizing <strong>μₚ²/(2γσₚ²) + λ·sₚ</strong> (equivalent to max SR²/2γ + λs̄)</li>
+        <li>This is the optimal risky composition before scaling by total risky exposure α</li>
+    </ul>
+    <p><strong>Stage 2 — Risk-free allocation:</strong></p>
+    <ul>
+        <li>Optimal risky exposure: <strong>α = (μₚ - r_f)/(γ·σₚ²)</strong> (Audit Check 1: α ∝ 1/γ)</li>
+        <li>Final risky weights are x₁ = α·w₁ and x₂ = α·w₂. The remainder 1−x'1 is invested in or borrowed from the risk-free asset.</li>
+    </ul>
+    <p><strong>Audit Checks Verified:</strong></p>
+    <ul>
+        <li><strong>Check 1 (Risk aversion):</strong> Doubling γ halves α (risky allocation) when λ=0.</li>
+        <li><strong>Check 2 (ESG taste):</strong> λ=0 → pure Sharpe maximization. Increasing λ tilts toward higher ESG assets.</li>
+        <li><strong>Check 3 (Symmetry):</strong> Identical assets with λ=0 produce equal weights (w₁=w₂=0.5).</li>
+        <li><strong>Check 4 (Corners):</strong> High λ can produce corner solutions in the greener risky asset.</li>
+    </ul>
+    <p><strong>Your current parameters:</strong> γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf * 100:.1f}%</p>
+</div>
+<div class="soft-box">
+    <h4>ESG Constraints Explained</h4>
+    <ul>
+        <li><strong>Exclusion Threshold:</strong> Minimum ESG score for individual assets to be considered (removes "sin stocks").</li>
+        <li><strong>Portfolio Minimum (s̄):</strong> Hard floor on the weighted-average ESG of the risky portfolio. Enforced via constraint: w₁s₁ + w₂s₂ ≥ s̄_min.</li>
+    </ul>
+</div>""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="disclaimer">
+This tool is for educational purposes and should not be treated as personal financial advice.
+</div>""", unsafe_allow_html=True)
