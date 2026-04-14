@@ -1495,41 +1495,35 @@ with mc_tab:
 
 with method_tab:
     st.markdown("### How QGreen works")
+    st.markdown("#### Two-stage portfolio construction (Pedersen et al. 2021)")
+    st.markdown("QGreen maximizes the ESG-augmented mean-variance objective:")
+    st.code("max  x'μ − (γ/2)x'Σx + λ·s̄", language=None)
+    st.markdown("where **s̄ = (x₁s₁ + x₂s₂)/(x₁ + x₂)** is the portfolio-average ESG score (risky assets only).")
+    st.markdown("**Stage 1 — ESG-constrained tangency portfolio:**")
+    st.markdown("""
+- Find mix w₁, w₂ across risky assets maximizing **μₚ²/(2γσₚ²) + λ·sₚ** (equivalent to max SR²/2γ + λs̄)
+- This is the optimal risky composition before scaling by total risky exposure α
+""")
+    st.markdown("**Stage 2 — Risk-free allocation:**")
     st.markdown(f"""
-<div class="soft-box">
-    <h4>Two-stage portfolio construction (Pedersen et al. 2021)</h4>
-    <p>QGreen maximizes the ESG-augmented mean-variance objective:</p>
-    <p style="font-family:monospace;background:rgba(27,94,32,0.08);padding:0.5rem;border-radius:8px;">
-    max <strong>x'μ - (γ/2)x'Σx + λ·s̄</strong>
-    </p>
-    <p>where <strong>s̄ = (x₁s₁ + x₂s₂)/(x₁ + x₂)</strong> is the portfolio-average ESG score (risky assets only).</p>
+- Optimal risky exposure: **α = (μₚ − r_f)/(γ·σₚ²)** (Audit Check 1: α ∝ 1/γ)
+- Final risky weights are x₁ = α·w₁ and x₂ = α·w₂. The remainder 1−x'1 is invested in or borrowed from the risk-free asset.
+""")
+    st.markdown("**Audit Checks Verified:**")
+    st.markdown(f"""
+- **Check 1 (Risk aversion):** Doubling γ halves α (risky allocation) when λ=0.
+- **Check 2 (ESG taste):** λ=0 → pure Sharpe maximization. Increasing λ tilts toward higher ESG assets.
+- **Check 3 (Symmetry):** Identical assets with λ=0 produce equal weights (w₁=w₂=0.5).
+- **Check 4 (Corners):** High λ can produce corner solutions in the greener risky asset.
 
-    <p><strong>Stage 1 — ESG-constrained tangency portfolio:</strong></p>
-    <ul>
-        <li>Find mix w₁, w₂ across risky assets maximizing <strong>μₚ²/(2γσₚ²) + λ·sₚ</strong> (equivalent to max SR²/2γ + λs̄)</li>
-        <li>This is the optimal risky composition before scaling by total risky exposure α</li>
-    </ul>
-    <p><strong>Stage 2 — Risk-free allocation:</strong></p>
-    <ul>
-        <li>Optimal risky exposure: <strong>α = (μₚ - r_f)/(γ·σₚ²)</strong> (Audit Check 1: α ∝ 1/γ)</li>
-        <li>Final risky weights are x₁ = α·w₁ and x₂ = α·w₂. The remainder 1−x'1 is invested in or borrowed from the risk-free asset.</li>
-    </ul>
-    <p><strong>Audit Checks Verified:</strong></p>
-    <ul>
-        <li><strong>Check 1 (Risk aversion):</strong> Doubling γ halves α (risky allocation) when λ=0.</li>
-        <li><strong>Check 2 (ESG taste):</strong> λ=0 → pure Sharpe maximization. Increasing λ tilts toward higher ESG assets.</li>
-        <li><strong>Check 3 (Symmetry):</strong> Identical assets with λ=0 produce equal weights (w₁=w₂=0.5).</li>
-        <li><strong>Check 4 (Corners):</strong> High λ can produce corner solutions in the greener risky asset.</li>
-    </ul>
-    <p><strong>Your current parameters:</strong> γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf * 100:.1f}%</p>
-</div>
-<div class="soft-box">
-    <h4>ESG Constraints Explained</h4>
-    <ul>
-        <li><strong>Exclusion Threshold:</strong> Minimum ESG score for individual assets to be considered (removes "sin stocks").</li>
-        <li><strong>Portfolio Minimum (s̄):</strong> Hard floor on the weighted-average ESG of the risky portfolio. Enforced via constraint: w₁s₁ + w₂s₂ ≥ s̄_min.</li>
-    </ul>
-</div>""", unsafe_allow_html=True)
+**Your current parameters:** γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf * 100:.1f}%
+""")
+    st.markdown("---")
+    st.markdown("#### ESG Constraints Explained")
+    st.markdown("""
+- **Exclusion Threshold:** Minimum ESG score for individual assets to be considered (removes "sin stocks").
+- **Portfolio Minimum (s̄):** Hard floor on the weighted-average ESG of the risky portfolio. Enforced via: w₁s₁ + w₂s₂ ≥ s̄_min.
+""")
 
 st.markdown("""
 <div class="disclaimer">
