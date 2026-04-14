@@ -22,7 +22,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM CSS (unchanged)
+# CUSTOM CSS (Enhanced Mobile Support)
 # ============================================================
 st.markdown("""
 <style>
@@ -127,14 +127,15 @@ st.markdown("""
     .metric-label { font-size: 0.90rem; font-weight: 800; color: #1b5e20 !important; margin-bottom: 0.35rem; }
     .metric-value { font-size: clamp(1.18rem, 2.2vw, 1.65rem); line-height: 1.18; font-weight: 900; color: #0f2d18 !important; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
     .metric-sub { font-size: 0.80rem; margin-top: 0.34rem; color: #355544 !important; }
-    .asset-table-wrap { margin-top: 0.35rem; margin-bottom: 0.9rem; border-radius: 18px; overflow: hidden; box-shadow: 0 12px 28px rgba(19,34,24,0.09); border: 1px solid rgba(27,94,32,0.18); }
-    .asset-table { width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.96); color: #102516 !important; }
+    .asset-table-wrap { margin-top: 0.35rem; margin-bottom: 0.9rem; border-radius: 18px; overflow: hidden; box-shadow: 0 12px 28px rgba(19,34,24,0.09); border: 1px solid rgba(27,94,32,0.18); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .asset-table { width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.96); color: #102516 !important; min-width: 600px; }
     .asset-table thead th { background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); color: white !important; padding: 0.82rem 0.9rem; font-size: 0.89rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.10); }
     .asset-table tbody td { padding: 0.78rem 0.9rem; border-bottom: 1px solid rgba(27,94,50,0.10); font-size: 0.92rem; color: #102516 !important; font-weight: 600; }
     .asset-table tbody tr:nth-child(odd) { background: #f3fbf4; }
     .asset-table tbody tr:nth-child(even) { background: #e8f5e9; }
-    .stTabs [data-baseweb="tab-list"] { gap: 0.45rem; background: rgba(255,255,255,0.62); padding: 0.35rem; border-radius: 999px; border: 1px solid rgba(46,125,50,0.10); box-shadow: 0 10px 24px rgba(19,34,24,0.05); width: fit-content; }
-    .stTabs [data-baseweb="tab"] { background: transparent !important; border-radius: 999px !important; padding: 0.55rem 1rem !important; color: #1b5e20 !important; font-weight: 700 !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 0.45rem; background: rgba(255,255,255,0.62); padding: 0.35rem; border-radius: 999px; border: 1px solid rgba(46,125,50,0.10); box-shadow: 0 10px 24px rgba(19,34,24,0.05); width: fit-content; max-width: 100%; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; }
+    .stTabs [data-baseweb="tab"] { background: transparent !important; border-radius: 999px !important; padding: 0.55rem 1rem !important; color: #1b5e20 !important; font-weight: 700 !important; white-space: nowrap; }
     .stTabs [aria-selected="true"] { background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%) !important; color: white !important; box-shadow: 0 8px 18px rgba(27,94,32,0.18); }
     .why-box { background: linear-gradient(160deg, rgba(255,255,255,0.96), rgba(232,245,233,0.95)); border-top: 4px solid #66bb6a; border-radius: 18px; padding: 1.15rem 1.25rem; box-shadow: 0 12px 28px rgba(19,34,24,0.06); height: 100%; }
     .why-box h4 { color: #1b5e20 !important; margin-top: 0; }
@@ -162,32 +163,49 @@ st.markdown("""
     @media (max-width: 768px) {
         /* Stack ALL Streamlit column blocks vertically */
         [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 0.5rem !important; }
-        [data-testid="column"] { min-width: 100% !important; flex: 1 1 100% !important; width: 100% !important; }
+        [data-testid="column"] { min-width: 100% !important; flex: 1 1 100% !important; width: 100% !important; margin-left: 0 !important; margin-right: 0 !important; }
+        
         /* Hero — smaller headline, tighter padding */
         .hero { padding: 1.4rem 1.1rem 1.2rem 1.1rem !important; }
-        .hero h1 { font-size: 2rem !important; }
+        .hero h1 { font-size: 1.75rem !important; }
         .hero p { font-size: 0.9rem !important; }
+        
         /* Mode cards — auto height when stacked */
-        .glass-card { min-height: auto !important; height: auto !important; padding: 1rem !important; }
+        .glass-card { min-height: auto !important; height: auto !important; padding: 1rem !important; margin-bottom: 0.5rem; }
+        
         /* Asset allocation table — horizontal scroll on narrow screens */
-        .asset-table-wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; max-width: calc(100vw - 2rem) !important; }
+        .asset-table-wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; max-width: 100vw !important; }
         .asset-table { min-width: 480px; font-size: 0.8rem !important; }
         .asset-table thead th, .asset-table tbody td { padding: 0.55rem 0.6rem !important; }
+        
         /* Tabs — scrollable horizontally, no wrap */
-        .stTabs [data-baseweb="tab-list"] { width: 100% !important; overflow-x: auto !important; flex-wrap: nowrap !important; -webkit-overflow-scrolling: touch !important; border-radius: 12px !important; scrollbar-width: none !important; }
+        .stTabs [data-baseweb="tab-list"] { width: 100% !important; overflow-x: auto !important; flex-wrap: nowrap !important; -webkit-overflow-scrolling: touch !important; border-radius: 12px !important; scrollbar-width: none !important; padding: 0.25rem !important; gap: 0.2rem !important; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none !important; }
         .stTabs [data-baseweb="tab"] { white-space: nowrap !important; padding: 0.45rem 0.8rem !important; font-size: 0.82rem !important; }
+        
         /* Metric & impact values — fluid sizing */
         .metric-value { font-size: clamp(1.1rem, 4.5vw, 1.4rem) !important; }
         .impact-value { font-size: clamp(1rem, 4vw, 1.3rem) !important; }
+        
         /* Content boxes — tighter padding */
         .why-box, .rec-box, .soft-box, .note-box, .info-box, .impact-shell, .strategy-box { padding: 0.85rem 0.9rem !important; }
+        
         /* Status pills */
         .status-pill { font-size: 0.8rem !important; padding: 0.28rem 0.6rem !important; }
+        
         /* Sidebar full width when open */
-        section[data-testid="stSidebar"] { min-width: 85vw !important; }
+        section[data-testid="stSidebar"] { min-width: 85vw !important; max-width: 90vw !important; }
+        
         /* Buttons full width for easy tapping */
-        .stButton > button { width: 100% !important; }
+        .stButton > button { width: 100% !important; padding: 0.85rem 1.25rem !important; font-size: 1rem !important; }
+        
+        /* Better spacing for mobile */
+        .stMarkdown { margin-bottom: 0.5rem !important; }
+        h2 { font-size: 1.5rem !important; }
+        h3 { font-size: 1.25rem !important; }
+        
+        /* Ensure plots don't overflow */
+        .stPlotlyChart, .stPyplot { overflow-x: auto !important; }
     }
 
     html, body, [data-testid="stAppViewContainer"], [data-testid="stMainBlockContainer"] { color-scheme: light !important; }
@@ -239,6 +257,18 @@ st.markdown("""
     div[role="option"]:hover {
         background: #e8f5e9 !important;
         color: #132218 !important;
+    }
+    
+    /* Mobile sidebar force-close utility class */
+    @media (max-width: 768px) {
+        .mobile-sidebar-hidden[data-testid="stSidebar"] {
+            transform: translateX(-110%) !important;
+            transition: transform 0.3s ease !important;
+        }
+        .mobile-sidebar-visible[data-testid="stSidebar"] {
+            transform: translateX(0) !important;
+            transition: transform 0.3s ease !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -893,20 +923,39 @@ if st.session_state.get("mode_just_changed"):
     components.html("""
 <script>
 (function () {
+    // Only run on mobile
     if (window.parent.innerWidth > 768) return;
+    
     var doc = window.parent.document;
-    function openSidebar(n) {
-        n = n || 0;
-        if (n > 15) return;
-        // collapsedControl is the hamburger/toggle shown when sidebar is closed
+    
+    function openSidebar(attempt) {
+        attempt = attempt || 0;
+        if (attempt > 20) return; // Give up after ~4 seconds
+        
+        // Try multiple selectors for the sidebar toggle button
         var btn = doc.querySelector('[data-testid="collapsedControl"]') ||
                   doc.querySelector('button[aria-label="Open sidebar"]') ||
                   doc.querySelector('button[aria-label="open sidebar"]') ||
-                  doc.querySelector('button[aria-label="Expand sidebar"]');
-        if (btn) { btn.click(); return; }
-        setTimeout(function () { openSidebar(n + 1); }, 200);
+                  doc.querySelector('button[aria-label="Expand sidebar"]') ||
+                  doc.querySelector('button[kind="header"]') ||
+                  doc.querySelector('section[data-testid="stSidebar"] button');
+        
+        if (btn) {
+            btn.click();
+            
+            // Also ensure sidebar is visible via CSS override as backup
+            var sidebar = doc.querySelector('section[data-testid="stSidebar"]');
+            if (sidebar) {
+                sidebar.classList.remove('mobile-sidebar-hidden');
+                sidebar.classList.add('mobile-sidebar-visible');
+            }
+        } else {
+            setTimeout(function() { openSidebar(attempt + 1); }, 200);
+        }
     }
-    setTimeout(openSidebar, 350);
+    
+    // Delay slightly to ensure DOM is ready
+    setTimeout(openSidebar, 300);
 })();
 </script>
 """, height=0)
@@ -1242,106 +1291,72 @@ if run:
 
     /* ── SCROLL ─────────────────────────────────────────────────────────── */
     function scrollToPortfolio() {
-        var anchor = doc.getElementById('portfolio-anchor');
-        if (anchor) {
-            anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } else {
-            var scroller = doc.querySelector('[data-testid="stMainScrollingContainer"]') ||
-                           doc.querySelector('section.main') || doc.querySelector('main');
-            if (scroller) scroller.scrollTop = 0;
+        // Try to find the portfolio anchor or heading
+        var headings = doc.querySelectorAll('h2, h3');
+        for (var i = 0; i < headings.length; i++) {
+            if (headings[i].textContent.includes('Optimal Portfolio') || headings[i].textContent.includes('🎯')) {
+                headings[i].scrollIntoView({ behavior: 'smooth', block: 'start' });
+                return;
+            }
         }
+        // Fallback: scroll to top of main content
+        var main = doc.querySelector('[data-testid="stMainBlockContainer"]') || 
+                   doc.querySelector('section.main') || 
+                   doc.querySelector('main');
+        if (main) main.scrollTop = 0;
     }
 
     /* ── SIDEBAR CLOSE (mobile only) ────────────────────────────────────── */
-    function isSidebarOpen() {
-        var sb = doc.querySelector('section[data-testid="stSidebar"]');
-        if (!sb) return false;
-        var r = sb.getBoundingClientRect();
-        // On mobile the open sidebar has its right edge well into the viewport
-        return r.right > 40;
-    }
-
-    function tryClose(attempt) {
-        attempt = attempt || 0;
-        if (attempt > 20) {
-            // Nuclear fallback: force-hide via CSS (sidebar still toggleable by user after)
-            var sb2 = doc.querySelector('section[data-testid="stSidebar"]');
-            if (sb2) sb2.style.transform = 'translateX(-110%)';
-            return;
+    function closeSidebar() {
+        if (!isMobile) return;
+        
+        var sidebar = doc.querySelector('section[data-testid="stSidebar"]');
+        if (!sidebar) return;
+        
+        // Method 1: Try clicking collapse button
+        var collapseBtn = doc.querySelector('[data-testid="stSidebarCollapseButton"]') ||
+                          doc.querySelector('button[aria-label="Close sidebar"]') ||
+                          doc.querySelector('button[aria-label="close sidebar"]') ||
+                          doc.querySelector('button[aria-label="Collapse sidebar"]');
+        
+        if (collapseBtn) {
+            collapseBtn.click();
         }
-        if (!isSidebarOpen()) return; // already closed
-
-        var closed = false;
-
-        // Strategy A – all known test-id / aria-label button selectors
-        var sels = [
-            '[data-testid="stSidebarCollapseButton"]',
-            'button[aria-label="Close sidebar"]',
-            'button[aria-label="close sidebar"]',
-            'button[aria-label="Collapse sidebar"]',
-            'button[aria-label="collapse sidebar"]',
-            'button[aria-label="Hide sidebar"]',
-            'button[aria-label="hide sidebar"]',
-        ];
-        for (var i = 0; i < sels.length; i++) {
-            var el = doc.querySelector(sels[i]);
-            if (el) { el.click(); closed = true; break; }
-        }
-
-        // Strategy B – first button inside the sidebar header element
-        if (!closed) {
-            var header = doc.querySelector('[data-testid="stSidebarHeader"]') ||
-                         doc.querySelector('section[data-testid="stSidebar"] > div > div');
-            if (header) {
-                var hBtn = header.querySelector('button');
-                if (hBtn) { hBtn.click(); closed = true; }
-            }
-        }
-
-        // Strategy C – ALL buttons in sidebar, pick one that looks like close/X
-        if (!closed) {
+        
+        // Method 2: Use CSS class to force hide (nuclear option)
+        setTimeout(function() {
             var sb = doc.querySelector('section[data-testid="stSidebar"]');
             if (sb) {
-                var btns = sb.querySelectorAll('button');
-                for (var j = 0; j < btns.length; j++) {
-                    var lbl = (btns[j].getAttribute('aria-label') || btns[j].title || '').toLowerCase();
-                    if (lbl.includes('close') || lbl.includes('collapse') || lbl.includes('hide')) {
-                        btns[j].click(); closed = true; break;
-                    }
-                }
-                // Still nothing? click first button in sidebar (almost always the toggle)
-                if (!closed && btns.length) { btns[0].click(); closed = true; }
+                sb.classList.add('mobile-sidebar-hidden');
+                sb.classList.remove('mobile-sidebar-visible');
+                // Also set inline style as extra insurance
+                sb.style.transform = 'translateX(-110%)';
             }
-        }
-
-        // Strategy D – click the overlay backdrop behind the sidebar
-        if (!closed) {
-            var overlay = doc.querySelector('[data-testid="stSidebarOverlay"]') ||
-                          doc.querySelector('[class*="overlay" i]') ||
-                          doc.querySelector('[class*="Overlay"]');
-            if (overlay) { overlay.click(); closed = true; }
-        }
-
-        // Strategy E – click the main content area (triggers Streamlit's click-outside handler)
-        if (!closed) {
-            var main = doc.querySelector('[data-testid="stMainBlockContainer"]') ||
-                       doc.querySelector('[data-testid="block-container"]');
-            if (main) {
-                main.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: win }));
+        }, 100);
+        
+        // Method 3: Click outside on main content
+        setTimeout(function() {
+            var mainContent = doc.querySelector('[data-testid="stAppViewContainer"]') ||
+                              doc.querySelector('.stApp');
+            if (mainContent) {
+                var clickEvent = new MouseEvent('click', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: win
+                });
+                mainContent.dispatchEvent(clickEvent);
             }
-            // Also fire Escape
-            doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
-        }
-
-        // Verify after a short delay; retry if still open
-        setTimeout(function () { tryClose(attempt + 1); }, 350);
+        }, 150);
     }
 
-    /* ── ENTRY POINT ────────────────────────────────────────────────────── */
-    setTimeout(function () {
-        if (isMobile) tryClose(0);
-        setTimeout(scrollToPortfolio, isMobile ? 800 : 200);
-    }, 400);
+    /* ── EXECUTE ────────────────────────────────────────────────────────── */
+    if (isMobile) {
+        closeSidebar();
+        // Delay scroll slightly to allow sidebar to start closing
+        setTimeout(scrollToPortfolio, 300);
+    } else {
+        scrollToPortfolio();
+    }
 })();
 </script>
 """, height=0)
