@@ -1,10 +1,10 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from pathlib import Path
 from textwrap import dedent
-
 try:
     import yfinance as yf
 except Exception:
@@ -20,31 +20,46 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-
 def close_sidebar_on_mobile():
-    st.markdown(
+    components.html(
         """
         <script>
-        const closeSidebarIfMobile = () => {
+        (function () {
             const isMobile = window.innerWidth <= 768;
             if (!isMobile) return;
 
-            const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
-            const collapseBtn = window.parent.document.querySelector('[data-testid="stSidebarCollapseButton"]');
+            function tryClose() {
+                const doc = window.parent.document;
 
-            if (sidebar && collapseBtn) {
-                const isExpanded = window.getComputedStyle(sidebar).transform === "none" ||
-                                   sidebar.getAttribute("aria-expanded") === "true";
-                if (isExpanded) {
-                    collapseBtn.click();
+                const selectors = [
+                    '[data-testid="stSidebarCollapseButton"]',
+                    'button[aria-label*="sidebar" i]',
+                    'button[title*="sidebar" i]'
+                ];
+
+                for (const selector of selectors) {
+                    const btn = doc.querySelector(selector);
+                    if (btn) {
+                        btn.click();
+                        return true;
+                    }
                 }
+                return false;
             }
-        };
 
-        setTimeout(closeSidebarIfMobile, 200);
+            let attempts = 0;
+            const interval = setInterval(() => {
+                attempts += 1;
+                const done = tryClose();
+                if (done || attempts > 20) {
+                    clearInterval(interval);
+                }
+            }, 150);
+        })();
         </script>
         """,
-        unsafe_allow_html=True,
+        height=0,
+        width=0,
     )
 
 # ============================================================
