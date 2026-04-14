@@ -842,6 +842,8 @@ mode_options = [
 ]
 if "mode" not in st.session_state:
     st.session_state["mode"] = mode_options[0]
+if "mode_just_changed" not in st.session_state:
+    st.session_state["mode_just_changed"] = False
 
 # ============================================================
 # HEADER
@@ -879,10 +881,35 @@ for col, (title, desc, badge, mode_value) in zip((m1, m2, m3), card_specs):
     if col.button("Select" if st.session_state["mode"] != mode_value else "✓ Selected", key=f"mode_btn_{mode_value}",
                   use_container_width=True):
         st.session_state["mode"] = mode_value
-        st.session_state.portfolio_built = False  # Reset when changing mode
+        st.session_state.portfolio_built = False
+        st.session_state["mode_just_changed"] = True
         st.rerun()
 
 mode = st.session_state["mode"]
+
+# ── MOBILE: auto-open sidebar when a mode card is tapped ─────────────────────
+if st.session_state.get("mode_just_changed"):
+    st.session_state["mode_just_changed"] = False
+    components.html("""
+<script>
+(function () {
+    if (window.parent.innerWidth > 768) return;
+    var doc = window.parent.document;
+    function openSidebar(n) {
+        n = n || 0;
+        if (n > 15) return;
+        // collapsedControl is the hamburger/toggle shown when sidebar is closed
+        var btn = doc.querySelector('[data-testid="collapsedControl"]') ||
+                  doc.querySelector('button[aria-label="Open sidebar"]') ||
+                  doc.querySelector('button[aria-label="open sidebar"]') ||
+                  doc.querySelector('button[aria-label="Expand sidebar"]');
+        if (btn) { btn.click(); return; }
+        setTimeout(function () { openSidebar(n + 1); }, 200);
+    }
+    setTimeout(openSidebar, 350);
+})();
+</script>
+""", height=0)
 
 # ============================================================
 # SIDEBAR
@@ -1210,43 +1237,111 @@ if run:
 <script>
 (function () {
     var doc = window.parent.document;
-    var isMobile = window.parent.innerWidth <= 768;
+    var win = window.parent;
+    var isMobile = win.innerWidth <= 768;
 
-    function collapseAndScroll() {
-        // 1. Collapse the sidebar (try several known Streamlit selectors)
-        if (isMobile) {
-            var btn =
-                doc.querySelector('[data-testid="stSidebarCollapseButton"]') ||
-                doc.querySelector('button[aria-label="Close sidebar"]') ||
-                doc.querySelector('button[aria-label="collapse sidebar"]');
-            if (!btn) {
-                // Fallback: first button inside the sidebar header area
-                var sidebar = doc.querySelector('section[data-testid="stSidebar"]');
-                if (sidebar) btn = sidebar.querySelector('button');
-            }
-            if (btn) btn.click();
+    /* ── SCROLL ─────────────────────────────────────────────────────────── */
+    function scrollToPortfolio() {
+        var anchor = doc.getElementById('portfolio-anchor');
+        if (anchor) {
+            anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+            var scroller = doc.querySelector('[data-testid="stMainScrollingContainer"]') ||
+                           doc.querySelector('section.main') || doc.querySelector('main');
+            if (scroller) scroller.scrollTop = 0;
         }
-
-        // 2. Scroll the main content pane to the #portfolio-anchor element
-        setTimeout(function () {
-            var anchor =
-                doc.getElementById('portfolio-anchor') ||
-                doc.querySelector('[data-testid="stMainScrollingContainer"]');
-            if (anchor) {
-                anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            } else {
-                // Final fallback: scroll the main scrollable container to top
-                var scroller =
-                    doc.querySelector('[data-testid="stMainScrollingContainer"]') ||
-                    doc.querySelector('section.main') ||
-                    doc.querySelector('main');
-                if (scroller) scroller.scrollTop = 0;
-            }
-        }, isMobile ? 600 : 200);
     }
 
-    // Give Streamlit time to re-render before acting
-    setTimeout(collapseAndScroll, 350);
+    /* ── SIDEBAR CLOSE (mobile only) ────────────────────────────────────── */
+    function isSidebarOpen() {
+        var sb = doc.querySelector('section[data-testid="stSidebar"]');
+        if (!sb) return false;
+        var r = sb.getBoundingClientRect();
+        // On mobile the open sidebar has its right edge well into the viewport
+        return r.right > 40;
+    }
+
+    function tryClose(attempt) {
+        attempt = attempt || 0;
+        if (attempt > 20) {
+            // Nuclear fallback: force-hide via CSS (sidebar still toggleable by user after)
+            var sb2 = doc.querySelector('section[data-testid="stSidebar"]');
+            if (sb2) sb2.style.transform = 'translateX(-110%)';
+            return;
+        }
+        if (!isSidebarOpen()) return; // already closed
+
+        var closed = false;
+
+        // Strategy A – all known test-id / aria-label button selectors
+        var sels = [
+            '[data-testid="stSidebarCollapseButton"]',
+            'button[aria-label="Close sidebar"]',
+            'button[aria-label="close sidebar"]',
+            'button[aria-label="Collapse sidebar"]',
+            'button[aria-label="collapse sidebar"]',
+            'button[aria-label="Hide sidebar"]',
+            'button[aria-label="hide sidebar"]',
+        ];
+        for (var i = 0; i < sels.length; i++) {
+            var el = doc.querySelector(sels[i]);
+            if (el) { el.click(); closed = true; break; }
+        }
+
+        // Strategy B – first button inside the sidebar header element
+        if (!closed) {
+            var header = doc.querySelector('[data-testid="stSidebarHeader"]') ||
+                         doc.querySelector('section[data-testid="stSidebar"] > div > div');
+            if (header) {
+                var hBtn = header.querySelector('button');
+                if (hBtn) { hBtn.click(); closed = true; }
+            }
+        }
+
+        // Strategy C – ALL buttons in sidebar, pick one that looks like close/X
+        if (!closed) {
+            var sb = doc.querySelector('section[data-testid="stSidebar"]');
+            if (sb) {
+                var btns = sb.querySelectorAll('button');
+                for (var j = 0; j < btns.length; j++) {
+                    var lbl = (btns[j].getAttribute('aria-label') || btns[j].title || '').toLowerCase();
+                    if (lbl.includes('close') || lbl.includes('collapse') || lbl.includes('hide')) {
+                        btns[j].click(); closed = true; break;
+                    }
+                }
+                // Still nothing? click first button in sidebar (almost always the toggle)
+                if (!closed && btns.length) { btns[0].click(); closed = true; }
+            }
+        }
+
+        // Strategy D – click the overlay backdrop behind the sidebar
+        if (!closed) {
+            var overlay = doc.querySelector('[data-testid="stSidebarOverlay"]') ||
+                          doc.querySelector('[class*="overlay" i]') ||
+                          doc.querySelector('[class*="Overlay"]');
+            if (overlay) { overlay.click(); closed = true; }
+        }
+
+        // Strategy E – click the main content area (triggers Streamlit's click-outside handler)
+        if (!closed) {
+            var main = doc.querySelector('[data-testid="stMainBlockContainer"]') ||
+                       doc.querySelector('[data-testid="block-container"]');
+            if (main) {
+                main.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: win }));
+            }
+            // Also fire Escape
+            doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+        }
+
+        // Verify after a short delay; retry if still open
+        setTimeout(function () { tryClose(attempt + 1); }, 350);
+    }
+
+    /* ── ENTRY POINT ────────────────────────────────────────────────────── */
+    setTimeout(function () {
+        if (isMobile) tryClose(0);
+        setTimeout(scrollToPortfolio, isMobile ? 800 : 200);
+    }, 400);
 })();
 </script>
 """, height=0)
