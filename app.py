@@ -1506,20 +1506,14 @@ with method_tab:
 """)
     st.markdown("**Stage 2 — Risk-free allocation:**")
     st.markdown(f"""
-- Optimal risky exposure: **α = (μₚ − r_f)/(γ·σₚ²)** (Audit Check 1: α ∝ 1/γ)
+- Optimal risky exposure: **α = (μₚ − r_f)/(γ·σₚ²)**
 - Final risky weights are x₁ = α·w₁ and x₂ = α·w₂. The remainder 1−x'1 is invested in or borrowed from the risk-free asset.
-""")
-    
-st.markdown(f"**Your current parameters:** γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf * 100:.1f}%")
 
+**Your current parameters:** γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf * 100:.1f}%
+""")
     st.markdown("---")
     st.markdown("#### ESG Constraints Explained")
     st.markdown("""
 - **Exclusion Threshold:** Minimum ESG score for individual assets to be considered (removes "sin stocks").
 - **Portfolio Minimum (s̄):** Hard floor on the weighted-average ESG of the risky portfolio. Enforced via: w₁s₁ + w₂s₂ ≥ s̄_min.
 """)
-
-st.markdown("""
-<div class="disclaimer">
-This tool is for educational purposes and should not be treated as personal financial advice.
-</div>""", unsafe_allow_html=True)
