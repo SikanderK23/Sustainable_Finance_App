@@ -1509,15 +1509,9 @@ with method_tab:
 - Optimal risky exposure: **α = (μₚ − r_f)/(γ·σₚ²)** (Audit Check 1: α ∝ 1/γ)
 - Final risky weights are x₁ = α·w₁ and x₂ = α·w₂. The remainder 1−x'1 is invested in or borrowed from the risk-free asset.
 """)
-    st.markdown("**Audit Checks Verified:**")
-    st.markdown(f"""
-- **Check 1 (Risk aversion):** Doubling γ halves α (risky allocation) when λ=0.
-- **Check 2 (ESG taste):** λ=0 → pure Sharpe maximization. Increasing λ tilts toward higher ESG assets.
-- **Check 3 (Symmetry):** Identical assets with λ=0 produce equal weights (w₁=w₂=0.5).
-- **Check 4 (Corners):** High λ can produce corner solutions in the greener risky asset.
+    
+st.markdown(f"**Your current parameters:** γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf * 100:.1f}%")
 
-**Your current parameters:** γ = {gamma}, λ = {lambda_esg:.3f}, r_f = {rf * 100:.1f}%
-""")
     st.markdown("---")
     st.markdown("#### ESG Constraints Explained")
     st.markdown("""
